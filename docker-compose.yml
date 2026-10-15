@@ -1,0 +1,38 @@
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: faultline-falkordb
+    ports:
+      - "6379:6379"
+      - "3000:3000"   # FalkorDB Browser
+    volumes:
+      - falkordb_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    container_name: faultline-api
+    ports:
+      - "8000:8000"
+    environment:
+      - FALKORDB_HOST=falkordb
+      - FALKORDB_PORT=6379
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - INVESTIGATOR_MODEL=${INVESTIGATOR_MODEL:-llama-3.3-70b-versatile}
+      - JUDGE_MODEL=${JUDGE_MODEL:-llama-3.1-8b-instant}
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./eval/results:/app/eval/results
+      - ./.cache:/app/.cache
+    restart: unless-stopped
+
+volumes:
+  falkordb_data:
