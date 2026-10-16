@@ -18,7 +18,19 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
-StepKind = Literal["tool_call", "llm_response", "handoff", "observation", "error"]
+StepKind = Literal[
+    # ── original kinds ──────────────────────────────────────────────────────
+    "tool_call", "llm_response", "handoff", "observation", "error",
+    # ── live chat mode: observable decisions per turn ───────────────────────
+    # tool field carries the sub-type label (router / context_selection / …)
+    "chat_input",          # the raw user message
+    "context_selection",   # which history + memory items went into the prompt
+    "router",              # model's direct-answer vs tool decision + reason
+    "tool_result",         # tool name, args, output, latency
+    "retrieval",           # memory / RAG records surfaced
+    "synthesis",           # model assembles final text from context + results
+    "chat_output",         # the delivered assistant answer
+]
 StepStatus = Literal["ok", "error", "skipped"]
 EdgeKind = Literal["native", "inferred", "handoff"]
 TraceOutcome = Literal["success", "failure", "error"]

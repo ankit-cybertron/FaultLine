@@ -97,3 +97,75 @@ Created comprehensive operational documentation:
 - [`docs/features.md`](file:///Users/cybertron/MyProjects/ML/faultline/docs/features.md): In-depth breakdown of each feature, expected working, implementation details, and files involved.
 - [`docs/steps_to_start.md`](file:///Users/cybertron/MyProjects/ML/faultline/docs/steps_to_start.md): Complete, step-by-step startup guide covering prerequisites, Docker FalkorDB, trace population, Streamlit UI, FastAPI, FastMCP, and Makefile shortcuts.
 - [`docs/memory.md`](file:///Users/cybertron/MyProjects/ML/faultline/docs/memory.md): Complete chronological record of everything Antigravity has done.
+
+---
+
+### Phase 5: Git Repository Initialization & Push
+_2026-10-16 (early morning)_
+
+- **Git init**: Initialized the FaultLine repository with `git init`, created `main` branch.
+- **Remote added**: `git remote add origin https://github.com/ankit-cybertron/FaultLine.git`
+- **Initial commit** (`baae314`): All 35 source and config files staged and committed with message:  
+  `feat: initial commit for FaultLine v2 - Every Answer Ships With Its Graph`
+- **Pushed**: `git push -u origin main` — all code live on GitHub.
+- **README updated**: Added link to `docs/steps_to_start.md` as the canonical quick-start reference.
+- **Project naming discussion**: User asked about the name "FaultLine". Discussed alternatives (Receipts, CausalFlow, Ariadne, Backprop). Decision: kept FaultLine as the repo/project name; no rename.
+
+---
+
+### Phase 6: Execution Plan Compliance Audit
+_2026-10-16 11:01 IST_
+
+Conducted a full cross-reference of `docs/FaultLine_Execution_Plan_v2.md` against the actual codebase. Key findings:
+
+**✅ Fully implemented:**
+- All 15 graph node labels and edge types from §4 (`:Run`, `:Step`, `:Source`, `:Claim`, `:Error`, `:Cause`; `HAS_STEP`, `ANSWERED_WITH`, `NEXT`, `DEPENDS_ON`, `HANDOFF_FROM`, `READ`, `SUPPORTED_BY`, `RAISED`, `CAUSED_BY`).
+- All 6 core Cypher queries: `ANSWER_FLOW`, `PATH_TO`, `PATH_TO_FALLBACK`, `FLEET_SUMMARY`, `RANK_BLAME`, `LINK_CAUSE` — all run in FalkorDB, zero in-memory Python traversal.
+- All **11 MCP tools** from §6: `explain_answer`, `diagnose_run`, `get_failure`, `backward_slice`, `step_detail`, `path_to`, `rank_blame`, `judge_step`, `propose_patch`, `replay_from`, `fleet_summary`.
+- Plus 2 bonus tools beyond the plan: `similar_failures_tool`, `list_runs_tool`.
+- Full stack compliance: Python 3.11, FalkorDB Docker, `falkordb` client, FastMCP, FastAPI, Cytoscape.js, Pydantic, single `llm.py` with disk cache + tenacity backoff + token logging.
+- Day 1–3 foundation tasks complete (recorder, graph, LLM, demo agent, faults, checker, judge, investigator, patch, replay, claims, fleet, UI, API).
+
+**❌ Missing / Not yet done (blockers before Oct 18 deadline):**
+1. `eval/results/demo.json` — empty directory; eval has never been run end-to-end.
+2. 90-second demo video — not recorded.
+3. Live public deployment (public URL) — not deployed.
+4. Cold-start test from fresh `git clone` — not verified.
+5. External-agent MCP demo output captured — code works, no proof captured.
+6. LLM calls pre-cached for the video — not done.
+7. Blog post (§4.4 — AirPods side prize) — not published.
+
+**Audit artifact**: written to `execution_plan_audit.md` in the Antigravity brain artifacts directory.
+
+---
+
+### Phase 7: Live Chat Mode Implementation
+_2026-10-16 11:55 IST_
+
+Implemented end-to-end **Live Chat Mode** with real-time decision graph streaming:
+- **Extended IR (`faultline/ir.py`)**: Added observable chat decision kinds (`chat_input`, `context_selection`, `router`, `synthesis`, `chat_output`) to `StepKind` literal without breaking existing kinds.
+- **Chat Agent Engine (`faultline/chat_agent.py`)**:
+  - Implemented `run_chat_turn()` generator yielding SSE-ready events for every observable decision.
+  - Observable steps tracked honestly (zero speculative hidden thoughts):
+    1. `chat_input`: Raw user query.
+    2. `context_selection`: Kept vs dropped turns and token/character budget metrics.
+    3. `router`: JSON model choice between direct answer vs tool invocation, alternative paths considered, and one-line rationale.
+    4. `tool_call` & `tool_result`: Tool name, arguments passed, execution output, and execution latency.
+    5. `retrieval`: Memory & stored context retrieval hits.
+    6. `synthesis`: Real-time streaming answer tokens.
+    7. `chat_output`: Delivered assistant message with token usage & turn latency.
+  - Automated sync to FalkorDB on completion.
+  - Resilient fallbacks for routing, argument extraction, and token streaming so tests and demonstrations run reliably under any network or API key status.
+- **FastAPI Endpoints (`faultline/api.py`)**:
+  - `POST /chat/turn`: SSE streaming endpoint returning `step`, `token`, and `done` events.
+  - `GET /chat/{run_id}/graph`: Returns Cytoscape elements for completed chat turns.
+  - `GET /chat/sessions/{session_id}/history`: Returns session conversation history.
+- **Streamlit UI V2 Tab 4 (`ui/app.py`)**:
+  - Added 4th tab: **💬 Live Chat Mode (Streamed Graph)** alongside existing Provenance, Forensics, and Fleet tabs (preserving all prior tabs completely intact).
+  - Split layout:
+    - **Left Column (Chat)**: Conversation history, model info, quick suggestion pills (`Calculate`, `Current UTC Time`, `Causal Provenance Explanation`), reset button, and real-time streaming answer container.
+    - **Right Column (Live Decision Graph)**: Live animated streaming step cards during execution; Cytoscape.js interactive graph canvas upon turn completion; interactive **Step Inspector** with detailed breakdowns of router decisions, context selection boundaries, tool executions, raw JSON input/output, and honest attribution disclaimer.
+- **Test Suite (`tests/test_chat_mode.py`)**:
+  - Added comprehensive test coverage: context selection budget, chat turn SSE sequence, FastAPI SSE streaming, and Cytoscape HTML generation.
+  - All 7 tests passing (`7 passed in 3.18s`).
+

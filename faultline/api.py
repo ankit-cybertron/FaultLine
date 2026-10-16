@@ -20,12 +20,19 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from faultline.config import settings
 from faultline.graph import FaultLineGraph
 from faultline.ingest.otel import otel_to_trace
 from faultline.investigator import investigate
+
+# ── in-process chat session store ─────────────────────────────────────────────
+# Maps session_id → list of {role, content} history dicts.
+# Replace with Redis for a multi-worker deployment.
+_chat_sessions: dict[str, list[dict]] = {}
+
 
 app = FastAPI(
     title="FaultLine API",
@@ -195,7 +202,97 @@ def list_patterns(graph_name: str = "demo_agent") -> list[dict[str, Any]]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── LIVE CHAT MODE ────────────────────────────────────────────────────────────
+
+class ChatTurnRequest(BaseModel):
+    message: str
+    session_id: str = "default"
+    graph_name: str = "live_chat"
+
+
+@app.post("/chat/turn")
+def chat_turn(req: ChatTurnRequest) -> StreamingResponse:
+    """
+    Send a user message and stream back SSE events, one per decision step.
+
+    Each event is:
+        event: step
+        data: {"turn_id": "...", "step": {idx, kind, tool, input, output, status, ts}}
+
+    Token events (during streaming synthesis):
+        event: token
+        data: {"turn_id": "...", "token": "..."}
+
+    Final event:
+        event: done
+        data: {"turn_id": "...", "run_id": "...", "latency_s": 1.2, "tokens": 345, "n_steps": 7}
+
+    After done, call GET /chat/{run_id}/graph to get the cytoscape graph.
+    """
+    from faultline.chat_agent import run_chat_turn
+
+    session_id = req.session_id
+    history = _chat_sessions.setdefault(session_id, [])
+
+    def generate():
+        turn = None
+        gen = run_chat_turn(
+            user_message=req.message,
+            history=history,
+            graph_name=req.graph_name,
+        )
+        try:
+            while True:
+                chunk = next(gen)
+                yield chunk
+        except StopIteration as exc:
+            turn = exc.value
+
+        # Append to session history after the turn completes
+        if turn is not None:
+            history.append({"role": "user", "content": req.message})
+            history.append({"role": "assistant", "content": turn.assistant_answer})
+            # Trim to last 20 messages to avoid unbounded growth
+            _chat_sessions[session_id] = history[-20:]
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",    # tell nginx not to buffer SSE
+        },
+    )
+
+
+@app.get("/chat/{run_id}/graph")
+def chat_run_graph(run_id: str, graph_name: str = "live_chat") -> dict[str, Any]:
+    """
+    Return a cytoscape.js-compatible elements list for a completed chat turn run.
+    Identical shape to GET /runs/{run_id}/graph — reuses existing UI graph renderer.
+    """
+    try:
+        g = FaultLineGraph(graph_name=graph_name)
+        return g.cytoscape_elements(run_id)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/chat/sessions/{session_id}/history")
+def chat_history(session_id: str) -> list[dict]:
+    """Return the raw message history for a session (role + content)."""
+    return _chat_sessions.get(session_id, [])
+
+
+@app.delete("/chat/sessions/{session_id}")
+def clear_chat_session(session_id: str) -> dict[str, str]:
+    """Reset a chat session (clears history)."""
+    _chat_sessions.pop(session_id, None)
+    return {"status": "cleared", "session_id": session_id}
+
+
 # ── run directly ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=settings.api_port, log_level="info")
+
