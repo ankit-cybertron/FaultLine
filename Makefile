@@ -27,11 +27,19 @@ investigate:
 	if [ -z "$$latest" ]; then echo "No traces found. Run 'make demo' first."; exit 1; fi; \
 	python -m faultline.investigator $$latest
 
-## Start Streamlit UI
+## Start React UI (Vite dev server)
+ui-react:
+	cd frontend && npm run dev
+
+## Build React UI for production
+ui-build:
+	cd frontend && npm run build
+
+## Start Streamlit UI (legacy)
 ui:
 	streamlit run ui/app.py
 
-## Start FastAPI server
+## Start FastAPI backend server
 api:
 	uvicorn faultline.api:app --reload --port 8000
 

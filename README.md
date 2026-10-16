@@ -205,14 +205,29 @@ python -m demo_agent.agent --fault wrong_table
 python -m demo_agent.agent --fault hallucinate_numbers
 ```
 
-### 5. Launch the Streamlit UI
+### 5. Launch the React Dashboard (Animata UI + Seismic Design Language)
+
+FaultLine includes a React + TypeScript application built as a flight recorder for AI agents with Animata UI components and a Seismology design language.
+
 ```bash
-streamlit run ui/app.py
+# Terminal 1: Start FastAPI backend server
+uvicorn faultline.api:app --reload --port 8000
+# or: make api
+
+# Terminal 2: Start React frontend (Vite dev server)
+cd frontend
+npm install
+npm run dev
+# or: make ui-react
 ```
-Open `http://localhost:8501` to view:
-- **Tab 1: Provenance Mode** — View answer cards, Claim Checker verification badges, and the interactive Cytoscape causal graph.
-- **Tab 2: Forensics Mode** — View highlighted shortest causal paths, origin test verdicts, and counterfactual replay.
-- **Tab 3: Fleet Mode** — View batch failure clusters, root cause signatures, and fleet-wide repair status.
+Open `http://localhost:5173` to view:
+- **Overview:** Live pipeline status with Animata Animated Beams, real-time KPI ledger, and one-click agent execution modal with Animated Border Trail.
+- **Provenance Explorer:** Annotated inline claims (solid green for supported, dashed red for unsupported), interactive SVG evidence threads connecting claims to graph nodes, React Flow causal graph with layered DAG layout, and trace time-travel scrubber.
+- **Forensics Lab:** Origin test investigation, single-fire epicenter pulse on root-cause step, shockwave path leading to the symptom, structured patch viewer, and forked counterfactual replay timeline (Proposed → Applied → Verified ladder).
+- **Fleet Intelligence:** Bento-grid / plate map of root-cause clusters, deterministic generative cluster fingerprints, affected run drill-down, and synthetic fleet generation.
+- **Command Palette (`⌘K` / `Ctrl+K`) & Keyboard Navigation:** Fast jumping between pages, runs, and stepping (`j`/`k`).
+
+*(Legacy Streamlit interface is still available via `streamlit run ui/app.py` or `make ui`)*
 
 ### 6. Run FastMCP Tool Server
 ```bash

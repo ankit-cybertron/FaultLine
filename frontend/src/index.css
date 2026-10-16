@@ -1,0 +1,142 @@
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --bg-basalt: #141210;
+  --bg-surface: #1B1815;
+  --bg-surface-raised: #231F1B;
+  --border-hairline: #342F29;
+  --text-bone: #F2EBDD;
+  --text-muted: #9A9083;
+  --signal-ember: #FF5A36;
+  --signal-ember-glow: rgba(255, 90, 54, 0.3);
+  --signal-lichen: #C6E36B;
+  --signal-ochre: #E8B04A;
+  --trace-ink: #D9CDB6;
+}
+
+.light {
+  color-scheme: light;
+  --bg-basalt: #F4EEE1;
+  --bg-surface: #EAE3D2;
+  --bg-surface-raised: #DFD7C4;
+  --border-hairline: #D1C7B2;
+  --text-bone: #1A1714;
+  --text-muted: #726A5F;
+  --signal-ember: #D9381E;
+  --signal-ember-glow: rgba(217, 56, 30, 0.25);
+  --signal-lichen: #558B2F;
+  --signal-ochre: #C67D0A;
+  --trace-ink: #2C2621;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg-basalt);
+  color: var(--text-bone);
+  font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+/* Tabular numerals for engineering instrumentation */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Chart paper seismograph grid texture (fine 8px, bolder 40px, 4% opacity) */
+.chart-paper-grid {
+  background-size: 8px 8px, 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(217, 205, 182, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(217, 205, 182, 0.04) 1px, transparent 1px),
+    linear-gradient(to right, rgba(217, 205, 182, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(217, 205, 182, 0.08) 1px, transparent 1px);
+}
+
+.light .chart-paper-grid {
+  background-size: 8px 8px, 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(26, 23, 20, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(26, 23, 20, 0.05) 1px, transparent 1px),
+    linear-gradient(to right, rgba(26, 23, 20, 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(26, 23, 20, 0.1) 1px, transparent 1px);
+}
+
+/* Ambient grid drift animation */
+@keyframes gridDrift {
+  0% { background-position: 0 0, 0 0, 0 0, 0 0; }
+  100% { background-position: -240px 0, -240px 0, -240px 0, -240px 0; }
+}
+
+.animate-grid-drift {
+  animation: gridDrift 60s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-grid-drift {
+    animation: none;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-basalt);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-hairline);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* React Flow styling overrides for Seismic warm dark theme */
+.react-flow__background {
+  background-color: var(--bg-basalt) !important;
+}
+
+.react-flow__edge-path {
+  stroke: var(--border-hairline);
+  stroke-width: 1.5;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--signal-ember);
+  stroke-width: 2;
+}
+
+.react-flow__minimap {
+  background-color: var(--bg-surface) !important;
+  border: 1px solid var(--border-hairline) !important;
+  border-radius: 8px;
+}
+
+.react-flow__controls {
+  box-shadow: none !important;
+  border: 1px solid var(--border-hairline) !important;
+  border-radius: 8px;
+  background-color: var(--bg-surface) !important;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background-color: var(--bg-surface) !important;
+  border-bottom: 1px solid var(--border-hairline) !important;
+  fill: var(--text-bone) !important;
+  color: var(--text-bone) !important;
+}
+
+.react-flow__controls-button:hover {
+  background-color: var(--bg-surface-raised) !important;
+}
