@@ -253,15 +253,18 @@ _2026-10-17 09:50 IST_
   - Healthcheck synchronization: `api` container awaits `falkordb` health check pass before launching.
 - **Docker Build Optimization (`.dockerignore`)**:
   - Created `.dockerignore` excluding `.git`, `.venv`, `.cache`, `.pytest_cache`, `node_modules`, `frontend/dist`, and temporary telemetry files.
-- **GitHub Actions CI/CD Pipeline (`.github/workflows/deploy.yml`)**:
-  - **Job 1 (`test`)**:
-    - Executes automatically on `push` and `pull_request` targeting `main`.
+- **GitHub Actions CI/CD Architecture**:
+  - **Dedicated CI Workflow ([`.github/workflows/test.yml`](file:///Users/cybertron/MyProjects/ML/faultline/.github/workflows/test.yml))**:
+    - Triggered on all branch pushes (`push: branches: ["**"]`) and all pull requests (`pull_request: branches: [main]`).
     - Spawns live `falkordb/falkordb:latest` service container with health checks.
     - Sets up Python 3.11 and installs project and dev dependencies.
     - Sets up Node.js 20 and executes `npm ci && npm run build` in `frontend/`.
     - Runs the complete automated test suite (`pytest tests/ -v`) against the live FalkorDB instance.
-  - **Job 2 (`deploy`)**:
-    - Runs conditionally upon `test` success on `push` to `main`.
-    - Uses `appleboy/ssh-action@v1.0.3` to connect to the AWS EC2 instance.
-    - Clones or pulls the latest `main` branch, generates `.env` with production secrets, and executes `docker compose down && docker compose up -d --build`.
+    - Gives fast, zero-credential feedback and PR status badges without touching production environments.
+  - **Dedicated Deployment Workflow ([`.github/workflows/deploy.yml`](file:///Users/cybertron/MyProjects/ML/faultline/.github/workflows/deploy.yml))**:
+    - Scoped strictly to `main` branch pushes and manual triggers (`workflow_dispatch`).
+    - Enforces test verification as a prerequisite gate (`needs: test`).
+    - Connects via SSH (`appleboy/ssh-action@v1.0.3`) to the AWS EC2 host.
+    - Clones or updates code, injects production `.env`, and runs `docker compose down && docker compose up -d --build`.
+
 
