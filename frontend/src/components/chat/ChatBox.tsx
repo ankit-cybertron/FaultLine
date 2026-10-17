@@ -149,14 +149,15 @@ export function ChatBox({
 
                 <div
                   className={cn(
-                    "p-3 rounded-xl text-xs leading-relaxed shadow-sm break-words",
+                    "p-3.5 rounded-xl text-xs leading-relaxed shadow-md break-words font-sans",
                     isUser
-                      ? "bg-bone text-basalt rounded-tr-none font-medium"
-                      : "bg-surface-raised border border-hairline text-bone rounded-tl-none"
+                      ? "bg-amber-400 text-slate-950 font-semibold rounded-tr-none shadow-amber-400/10"
+                      : "bg-[#221f1c] border border-white/15 text-slate-100 rounded-tl-none shadow-lg"
                   )}
                 >
                   <p className="whitespace-pre-wrap">{msg.content}</p>
                 </div>
+
 
                 {/* Turn trace badge button */}
                 {!isUser && msg.steps && msg.steps.length > 0 && msg.turnId && (
@@ -185,14 +186,15 @@ export function ChatBox({
               <Bot className="w-3 h-3" />
               <span>Generating response...</span>
             </div>
-            <div className="p-3 rounded-xl rounded-tl-none bg-surface-raised border border-indigo-500/30 text-bone text-xs leading-relaxed shadow-md">
+            <div className="p-3.5 rounded-xl rounded-tl-none bg-[#221f1c] border border-indigo-500/50 text-slate-100 text-xs leading-relaxed shadow-lg font-sans">
               <p className="whitespace-pre-wrap">
                 {currentTokens || (
-                  <span className="text-muted italic flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping inline-block" />
-                    Evaluating decision flow...
+                  <span className="text-slate-400 italic flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-indigo-400 animate-ping inline-block" />
+                    Evaluating decision flow and streaming tokens...
                   </span>
                 )}
+
                 {currentTokens && <span className="inline-block w-1.5 h-3 ml-0.5 bg-indigo-400 animate-pulse" />}
               </p>
             </div>

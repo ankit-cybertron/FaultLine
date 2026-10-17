@@ -1,15 +1,20 @@
-"""
-config.py — Single source of truth for runtime settings.
-
-Reads from environment / .env file. Every other module imports from here;
-nothing reads os.environ directly.
-"""
-
 from __future__ import annotations
 
+import os
 from pathlib import Path
-
+from dotenv import dotenv_values
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Ensure .env values take absolute priority over stale/malformed shell environment variables
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.exists():
+    _env_dict = dotenv_values(_env_path)
+    if _env_dict.get("GROQ_API_KEY"):
+        os.environ["GROQ_API_KEY"] = _env_dict["GROQ_API_KEY"]
+    if _env_dict.get("INVESTIGATOR_MODEL"):
+        os.environ["INVESTIGATOR_MODEL"] = _env_dict["INVESTIGATOR_MODEL"]
+    if _env_dict.get("JUDGE_MODEL"):
+        os.environ["JUDGE_MODEL"] = _env_dict["JUDGE_MODEL"]
 
 
 class Settings(BaseSettings):
@@ -19,6 +24,8 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     investigator_model: str = "qwen/qwen3.8-27b"
     judge_model: str = "qwen/qwen3.8-27b"
+
+
 
     # --- FalkorDB ---
     falkordb_host: str = "localhost"
