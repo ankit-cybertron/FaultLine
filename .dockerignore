@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+.cache
+.pytest_cache
+node_modules
+frontend/node_modules
+frontend/dist
+data/otel/*.json
+data/runs
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+.env

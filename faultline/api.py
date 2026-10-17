@@ -902,6 +902,30 @@ def clear_chat_session(session_id: str) -> dict[str, str]:
     return {"status": "cleared", "session_id": session_id}
 
 
+# ── Frontend static files (Production SPA) ───────────────────────────────────
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if FRONTEND_DIST.exists():
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse
+
+    if (FRONTEND_DIST / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="frontend_assets")
+
+    @app.get("/")
+    async def serve_index():
+        return FileResponse(FRONTEND_DIST / "index.html")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Do not intercept API paths
+        if full_path.startswith("api/") or full_path.startswith("chat/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        file_path = FRONTEND_DIST / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(FRONTEND_DIST / "index.html")
+
+
 # ── run directly ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn

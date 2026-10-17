@@ -231,3 +231,37 @@ _2026-10-17 09:10 IST_
   - Created [`tests/test_decision_branch.py`](file:///Users/cybertron/MyProjects/ML/faultline/tests/test_decision_branch.py) covering validation/fallback, slice exclusion of non-chosen candidates, causal prompt conditioning, and clarify flow (4/4 passed).
   - All 14 tests across the repository passing (`14 passed in tests/`).
   - Production frontend build verified (`tsc -b && vite build` succeeded with zero errors).
+
+---
+
+### Phase 10: Containerization, Static Hosting, and AWS GitHub Actions CI/CD Pipeline
+_2026-10-17 09:50 IST_
+
+- **Single-Container Full-Stack Production Architecture (`Dockerfile`)**:
+  - Created multi-stage Dockerfile:
+    - *Stage 1 (`node:20-alpine`)*: Copies `frontend/package.json` and `frontend/package-lock.json`, runs `npm ci`, and builds production bundles into `/app/frontend/dist` via `npm run build`.
+    - *Stage 2 (`python:3.11-slim`)*: Installs system utilities (`curl`, `build-essential`), installs packaging dependencies (`hatchling`), and installs `faultline` and Python dependencies from `pyproject.toml`.
+    - Copies built React assets from Stage 1 into `/app/frontend/dist`.
+    - Configures container healthcheck: `curl -f http://localhost:8000/health || exit 1`.
+    - Entrypoint starts Uvicorn serving `faultline.api:app` on port 8000.
+- **SPA Static Hosting & Fallback in FastAPI (`faultline/api.py`)**:
+  - Configured conditional production mounting: if `frontend/dist` exists, mounts `/assets` using Starlette `StaticFiles`.
+  - Added `@app.get("/")` serving `frontend/dist/index.html`.
+  - Added `@app.get("/{full_path:path}")` SPA fallback to return requested static files or `index.html` for client-side React routes (`/chat`, `/forensics`, etc.) while safeguarding `/api/*` and `/chat/*` endpoints.
+- **Docker Compose Configuration (`docker-compose.yml`)**:
+  - Co-located `falkordb` (`falkordb/falkordb:latest`) on ports 6379 & 3000 with `api` (`build: .`) on port 8000.
+  - Healthcheck synchronization: `api` container awaits `falkordb` health check pass before launching.
+- **Docker Build Optimization (`.dockerignore`)**:
+  - Created `.dockerignore` excluding `.git`, `.venv`, `.cache`, `.pytest_cache`, `node_modules`, `frontend/dist`, and temporary telemetry files.
+- **GitHub Actions CI/CD Pipeline (`.github/workflows/deploy.yml`)**:
+  - **Job 1 (`test`)**:
+    - Executes automatically on `push` and `pull_request` targeting `main`.
+    - Spawns live `falkordb/falkordb:latest` service container with health checks.
+    - Sets up Python 3.11 and installs project and dev dependencies.
+    - Sets up Node.js 20 and executes `npm ci && npm run build` in `frontend/`.
+    - Runs the complete automated test suite (`pytest tests/ -v`) against the live FalkorDB instance.
+  - **Job 2 (`deploy`)**:
+    - Runs conditionally upon `test` success on `push` to `main`.
+    - Uses `appleboy/ssh-action@v1.0.3` to connect to the AWS EC2 instance.
+    - Clones or pulls the latest `main` branch, generates `.env` with production secrets, and executes `docker compose down && docker compose up -d --build`.
+
