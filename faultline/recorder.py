@@ -95,9 +95,28 @@ class RunRecorder:
         self.edges: list[DependsOnEdge] = []
         self.sources: dict[str, SourceRecord] = {}
         self.step_sources: list[tuple[int, str]] = []  # (step_idx, source_id)
+        self.considered_edges: list[dict] = []  # {decision_idx, candidate_idx, chosen, confidence}
+        self.favored_by_edges: list[dict] = []  # {candidate_idx, target_step_idx, target_source_id}
         self.answer_step_idx: Optional[int] = None
         self.outcome: str = "success"
         self._curr_idx = 0
+
+    def record_considered(self, decision_idx: int, candidate_idx: int, chosen: bool, confidence: float) -> None:
+        """Record a CONSIDERED edge between a decision step and a candidate alternative."""
+        self.considered_edges.append({
+            "decision_idx": decision_idx,
+            "candidate_idx": candidate_idx,
+            "chosen": bool(chosen),
+            "confidence": float(confidence),
+        })
+
+    def record_favored_by(self, candidate_idx: int, target_step_idx: Optional[int] = None, target_source_id: Optional[str] = None) -> None:
+        """Record a FAVORED_BY edge linking a candidate to its context turn or source."""
+        self.favored_by_edges.append({
+            "candidate_idx": candidate_idx,
+            "target_step_idx": target_step_idx,
+            "target_source_id": target_source_id,
+        })
 
     def record_source(self, source_id: str, kind: str = "table", version: str = "1.0", content_hash: str = "") -> None:
         """Register an external source node (table, doc, template)."""
@@ -132,20 +151,20 @@ class RunRecorder:
 
         # Collect explicit or implicit dependencies
         dep_indices: set[int] = set()
-        if dependencies:
+        if dependencies is not None:
             for dep in dependencies:
                 if isinstance(dep, TrackedValue) and dep.producer_idx is not None:
                     dep_indices.add(dep.producer_idx)
                 elif isinstance(dep, int):
                     dep_indices.add(dep)
+        else:
+            # Also inspect inp for any TrackedValue objects
+            dep_indices.update(extract_producers(inp))
 
-        # Also inspect inp for any TrackedValue objects
-        dep_indices.update(extract_producers(inp))
-
-        # Always add a chronological dependency from previous step if no explicit deps
-        # or cross-agent handoff
-        if idx > 0 and not dep_indices:
-            dep_indices.add(idx - 1)
+            # Always add a chronological dependency from previous step if no explicit deps
+            # or cross-agent handoff, but NEVER for candidate alternatives
+            if idx > 0 and not dep_indices and kind != "candidate":
+                dep_indices.add(idx - 1)
 
         for dep_idx in sorted(dep_indices):
             if dep_idx != idx and 0 <= dep_idx < idx:
@@ -265,14 +284,15 @@ class RunRecorder:
                 {"run_id": self.run_id, "idx": step.idx},
             )
 
-        # 4. Create NEXT chain
-        for i in range(len(self.steps) - 1):
+        # 4. Create NEXT chain (skip candidate nodes from linear sequence)
+        seq_steps = [s for s in self.steps if s.kind != "candidate"]
+        for i in range(len(seq_steps) - 1):
             g.query(
                 """
                 MATCH (a:Step {run_id: $run_id, idx: $idx_a}), (b:Step {run_id: $run_id, idx: $idx_b})
                 MERGE (a)-[:NEXT]->(b)
                 """,
-                {"run_id": self.run_id, "idx_a": self.steps[i].idx, "idx_b": self.steps[i + 1].idx},
+                {"run_id": self.run_id, "idx_a": seq_steps[i].idx, "idx_b": seq_steps[i + 1].idx},
             )
 
         # 5. Create DEPENDS_ON / HANDOFF_FROM edges
@@ -302,7 +322,50 @@ class RunRecorder:
                 {"run_id": self.run_id, "idx": step_idx, "src_id": s_id},
             )
 
-        # 7. Create ANSWERED_WITH edge
+        # 7. Create CONSIDERED edges
+        for c_edge in self.considered_edges:
+            g.query(
+                """
+                MATCH (d:Step {run_id: $run_id, idx: $dec_idx}), (c:Step {run_id: $run_id, idx: $cand_idx})
+                MERGE (d)-[:CONSIDERED {chosen: $chosen, confidence: $conf}]->(c)
+                """,
+                {
+                    "run_id": self.run_id,
+                    "dec_idx": c_edge["decision_idx"],
+                    "cand_idx": c_edge["candidate_idx"],
+                    "chosen": c_edge["chosen"],
+                    "conf": c_edge["confidence"],
+                },
+            )
+
+        # 8. Create FAVORED_BY edges
+        for fb in self.favored_by_edges:
+            if fb.get("target_step_idx") is not None:
+                g.query(
+                    """
+                    MATCH (c:Step {run_id: $run_id, idx: $cand_idx}), (s:Step {run_id: $run_id, idx: $target_idx})
+                    MERGE (c)-[:FAVORED_BY]->(s)
+                    """,
+                    {
+                        "run_id": self.run_id,
+                        "cand_idx": fb["candidate_idx"],
+                        "target_idx": fb["target_step_idx"],
+                    },
+                )
+            if fb.get("target_source_id") is not None:
+                g.query(
+                    """
+                    MATCH (c:Step {run_id: $run_id, idx: $cand_idx}), (src:Source {id: $src_id})
+                    MERGE (c)-[:FAVORED_BY]->(src)
+                    """,
+                    {
+                        "run_id": self.run_id,
+                        "cand_idx": fb["candidate_idx"],
+                        "src_id": fb["target_source_id"],
+                    },
+                )
+
+        # 9. Create ANSWERED_WITH edge
         if self.answer_step_idx is not None:
             g.query(
                 """
@@ -312,4 +375,4 @@ class RunRecorder:
                 {"run_id": self.run_id, "ans_idx": self.answer_step_idx},
             )
 
-        log.info("synced run %s to graph %s (steps=%d, edges=%d)", self.run_id, g_name, len(self.steps), len(self.edges))
+        log.info("synced run %s to graph %s (steps=%d, edges=%d, considered=%d)", self.run_id, g_name, len(self.steps), len(self.edges), len(self.considered_edges))

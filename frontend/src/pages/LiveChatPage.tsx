@@ -20,14 +20,14 @@ export function LiveChatPage() {
   const abortControllerRef = useRef<AbortController | null>(null)
   const { playClick, playSeismicPing } = useSeismicAudio()
 
-  const handleSendMessage = useCallback(async (text: string) => {
+  const handleSendMessage = useCallback(async (text: string, forcedInterpretation?: string) => {
     if (!text.trim() || isStreaming) return
 
     const userMsgId = "msg_user_" + Date.now()
     const userMsg: ChatMessage = {
       id: userMsgId,
       role: "user",
-      content: text,
+      content: forcedInterpretation ? `${text} (interpreting as: ${forcedInterpretation})` : text,
       timestamp: Date.now(),
     }
 
@@ -45,15 +45,18 @@ export function LiveChatPage() {
     let accumulatedTokens = ""
     const accumulatedSteps: ChatStep[] = []
     let currentTurnId = ""
+    let clarifyQuestion: string | null = null
+    let clarifyCandidates: any[] = []
 
     try {
-      // POST to /chat/turn endpoint
+      // POST to /chat/turn endpoint with optional forced_interpretation
       const response = await fetch("/chat/turn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
           session_id: sessionId,
+          forced_interpretation: forcedInterpretation || null,
         }),
         signal: controller.signal,
       })
@@ -105,6 +108,24 @@ export function LiveChatPage() {
               try {
                 playClick()
               } catch {}
+            } else if (eventType === "decision_added") {
+              const decStep = parsed.step as ChatStep
+              if (!accumulatedSteps.some((s) => s.idx === decStep.idx)) {
+                accumulatedSteps.push(decStep)
+                setLiveSteps([...accumulatedSteps])
+              }
+            } else if (eventType === "candidate_added") {
+              const candStep = parsed.step as ChatStep
+              if (!accumulatedSteps.some((s) => s.idx === candStep.idx)) {
+                accumulatedSteps.push(candStep)
+                setLiveSteps([...accumulatedSteps])
+              }
+            } else if (eventType === "clarify") {
+              clarifyQuestion = parsed.clarify_question
+              clarifyCandidates = parsed.candidates || []
+              if (!accumulatedTokens) {
+                accumulatedTokens = clarifyQuestion || "Please clarify your question:"
+              }
             } else if (eventType === "token") {
               const token = parsed.token || ""
               accumulatedTokens += token
@@ -126,12 +147,15 @@ export function LiveChatPage() {
       const assistantMsg: ChatMessage = {
         id: "msg_ast_" + Date.now(),
         role: "assistant",
-        content: accumulatedTokens || "Done.",
+        content: accumulatedTokens || (clarifyQuestion ? clarifyQuestion : "Done."),
         steps: [...accumulatedSteps],
         turnId: currentTurnId,
         latency_s: turnLatency,
         tokens: turnTokens,
         timestamp: Date.now(),
+        clarify_question: clarifyQuestion,
+        candidates: clarifyCandidates,
+        forced_interpretation: forcedInterpretation,
       }
 
       setMessages((prev) => [...prev, assistantMsg])
@@ -192,6 +216,16 @@ export function LiveChatPage() {
     }
   }, [messages])
 
+  const handleSelectCandidate = useCallback((candidateLabel: string) => {
+    // Find last user query to re-run with forced interpretation
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user")
+    if (lastUserMsg) {
+      // Strip any prior (interpreting as: ...) suffix if present
+      const cleanPrompt = lastUserMsg.content.replace(/\s*\(interpreting as:.*\)$/, "")
+      handleSendMessage(cleanPrompt, candidateLabel)
+    }
+  }, [messages, handleSendMessage])
+
   return (
     <div className="flex w-full h-[calc(100vh-3.5rem)] overflow-hidden bg-basalt">
       {/* Left Column: Chat Box */}
@@ -205,6 +239,7 @@ export function LiveChatPage() {
           onStopStreaming={handleStopStreaming}
           onClearChat={handleClearChat}
           onSelectMessageTurn={handleSelectMessageTurn}
+          onSelectCandidate={handleSelectCandidate}
         />
       </div>
 

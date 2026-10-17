@@ -185,4 +185,49 @@ _2026-10-17 08:00 IST_
   - Created [`VerticalDecisionNode.tsx`](file:///Users/cybertron/MyProjects/ML/faultline/frontend/src/components/chat/VerticalDecisionNode.tsx) with top input handle and bottom output handle, animated live pulse for active streaming steps, status badges, and expandable JSON inspector drawer.
   - Wired into `App.tsx`, `Sidebar.tsx`, and `CommandPalette.tsx` as default active view.
 
+---
 
+### Phase 9: Decision Branching & Disambiguation Flow
+_2026-10-17 09:10 IST_
+
+- **Core IR Extensions (`faultline/ir.py`)**:
+  - Added `"decision"` and `"candidate"` to `StepKind` literal.
+- **RunRecorder Enhancements (`faultline/recorder.py`)**:
+  - Added `self.considered_edges` and `self.favored_by_edges`.
+  - Added `record_considered(decision_idx, candidate_idx, chosen, confidence)` and `record_favored_by(candidate_idx, target_step_idx, target_source_id)`.
+  - Updated `record_step` to ensure candidate steps do not auto-create `DEPENDS_ON` edges.
+  - Updated `sync_to_falkordb` to exclude candidates from linear `NEXT` sequence and persist `CONSIDERED` and `FAVORED_BY` edges.
+- **Graph Causal Isolation (`faultline/graph.py`)**:
+  - Updated `get_run_edges` and `cytoscape_elements` to retrieve and format `CONSIDERED` and `FAVORED_BY` edges with `chosen` and `conf`.
+  - Confirmed `BACKWARD_SLICE` strictly traverses `[:DEPENDS_ON|HANDOFF_FROM*1..]`, completely isolating rejected candidates from root-cause analysis and slices.
+- **Pre-Synthesis Interpretation Pipeline (`faultline/chat_agent.py`)**:
+  - Added `InterpretationCandidate` and `InterpretationOutput` Pydantic models.
+  - Implemented `_interpret_query` with Groq, strict JSON, Pydantic validation, retry once, and fallback.
+  - Implemented `_measure_influence` for counterfactual context evaluation (`chosen_without_history`).
+  - Emitted `decision` step and child `candidate` steps with `CONSIDERED` and `FAVORED_BY` edges.
+  - Emitted `decision_added` and `candidate_added` SSE events alongside `step`.
+  - Injected `"Interpret the question as: <chosen>. Answer accordingly."` into synthesis prompt conditioned on chosen candidate.
+  - Added clarification flow: emits `clarify` event with `clarify_question` and candidate alternatives when confidences are within 0.15.
+  - Added support for `forced_interpretation`.
+- **API Endpoint Updates (`faultline/api.py`)**:
+  - Added `forced_interpretation: Optional[str] = None` to `ChatTurnRequest`.
+- **React UI Decision Branching (`frontend/src/`)**:
+  - `types/index.ts`: Added `decision` and `candidate` kinds, candidate metadata, and clarify fields.
+  - `VerticalLiveGraph.tsx`:
+    - Positioned candidate nodes side-by-side in a horizontal row below decision step (`x = baseX + (j - (n-1)/2) * candSpacing`, `y = decisionY + 230`).
+    - Added "Show alternatives" toggle button (default ON). When OFF, collapses rejected branches into a single linear chosen path.
+    - Added bright solid edge for chosen candidate and dashed dimmed edge with "not taken" for rejected candidates.
+    - Chosen candidate links into synthesis below.
+  - `VerticalDecisionNode.tsx`:
+    - Disambiguation decision card with ambiguity status, chosen label, and disclaimer: *"Interpretations the model listed when asked. Not its hidden reasoning."*
+    - Candidate card with chosen checkmark badge, confidence bar + %, dimmed/dashed for rejected with "NOT TAKEN", and favored-by context badges.
+    - Telemetry inspector on click.
+  - `ChatBox.tsx`:
+    - Interactive clarification card with clickable candidate chips that re-run turn with `forced_interpretation`.
+    - Added `"What is apple?"` sample prompt with `BRANCH` tag.
+  - `LiveChatPage.tsx`:
+    - Wired `clarify`, `decision_added`, and `candidate_added` SSE events and candidate selection handler.
+- **Testing & Verification**:
+  - Created [`tests/test_decision_branch.py`](file:///Users/cybertron/MyProjects/ML/faultline/tests/test_decision_branch.py) covering validation/fallback, slice exclusion of non-chosen candidates, causal prompt conditioning, and clarify flow (4/4 passed).
+  - All 14 tests across the repository passing (`14 passed in tests/`).
+  - Production frontend build verified (`tsc -b && vite build` succeeded with zero errors).

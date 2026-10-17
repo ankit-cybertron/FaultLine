@@ -474,17 +474,46 @@ def get_run_steps(run_id: str, graph_name: str) -> list[dict]:
 
 
 def get_run_edges(run_id: str, graph_name: str) -> list[dict]:
-    """All DEPENDS_ON and NEXT edges for a run. Used by the UI graph view."""
+    """All DEPENDS_ON, NEXT, HANDOFF_FROM, CONSIDERED, and FAVORED_BY edges for a run. Used by the UI graph view."""
     g = get_graph(graph_name)
     rows = g.query(
         """
-        MATCH (a:Step {run_id:$run_id})-[rel:DEPENDS_ON|NEXT|HANDOFF_FROM]->(b:Step {run_id:$run_id})
+        MATCH (a:Step {run_id:$run_id})-[rel:DEPENDS_ON|NEXT|HANDOFF_FROM|CONSIDERED]->(b:Step {run_id:$run_id})
         RETURN a.idx AS from_idx, type(rel) AS rel_type, b.idx AS to_idx,
-               COALESCE(rel.kind, '') AS kind, COALESCE(rel.conf, 1.0) AS conf
+               COALESCE(rel.kind, '') AS kind, COALESCE(rel.conf, COALESCE(rel.confidence, 1.0)) AS conf,
+               COALESCE(rel.chosen, false) AS chosen
         """,
         {"run_id": run_id},
     ).result_set
-    return [{"from": r[0], "type": r[1], "to": r[2], "kind": r[3], "conf": r[4]} for r in rows]
+    edges = [{"from": r[0], "type": r[1], "to": r[2], "kind": r[3], "conf": r[4], "chosen": r[5]} for r in rows]
+
+    try:
+        fb_rows = g.query(
+            """
+            MATCH (a:Step {run_id:$run_id})-[rel:FAVORED_BY]->(b:Step {run_id:$run_id})
+            RETURN a.idx AS from_idx, b.idx AS to_idx
+            """,
+            {"run_id": run_id},
+        ).result_set
+        for r in fb_rows:
+            edges.append({"from": r[0], "type": "FAVORED_BY", "to": r[1], "kind": "favored_by", "conf": 1.0, "chosen": False})
+    except Exception:
+        pass
+
+    try:
+        fb_src_rows = g.query(
+            """
+            MATCH (a:Step {run_id:$run_id})-[rel:FAVORED_BY]->(src:Source)
+            RETURN a.idx AS from_idx, src.id AS src_id
+            """,
+            {"run_id": run_id},
+        ).result_set
+        for r in fb_src_rows:
+            edges.append({"from": r[0], "type": "FAVORED_BY", "to": f"src_{r[1]}", "kind": "favored_by", "conf": 1.0, "chosen": False})
+    except Exception:
+        pass
+
+    return edges
 
 
 # ──────────────────────────────────────────────────────────────
@@ -674,6 +703,8 @@ class FaultLineGraph:
                     "source": str(e["from"]),
                     "target": str(e["to"]),
                     "kind": e.get("type", ""),
+                    "chosen": e.get("chosen", False),
+                    "conf": e.get("conf", 1.0),
                 }
             }
             for e in edges

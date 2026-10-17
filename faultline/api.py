@@ -817,6 +817,7 @@ class ChatTurnRequest(BaseModel):
     message: str
     session_id: str = "default"
     graph_name: str = "live_chat"
+    forced_interpretation: Optional[str] = None
 
 
 @app.post("/chat/turn")
@@ -849,6 +850,7 @@ def chat_turn(req: ChatTurnRequest) -> StreamingResponse:
             user_message=req.message,
             history=history,
             graph_name=req.graph_name,
+            forced_interpretation=req.forced_interpretation,
         )
         try:
             while True:

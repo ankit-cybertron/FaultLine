@@ -26,6 +26,8 @@ StepKind = Literal[
     "chat_input",          # the raw user message
     "context_selection",   # which history + memory items went into the prompt
     "router",              # model's direct-answer vs tool decision + reason
+    "decision",            # interpretation or branching choice
+    "candidate",           # candidate alternative under a decision
     "tool_result",         # tool name, args, output, latency
     "retrieval",           # memory / RAG records surfaced
     "synthesis",           # model assembles final text from context + results

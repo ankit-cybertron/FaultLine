@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react"
-import { Send, Square, Trash2, Bot, User, Sparkles, HelpCircle, ArrowRight } from "lucide-react"
+import { Send, Square, Trash2, Bot, User, Sparkles, HelpCircle, ArrowRight, CheckCircle2 } from "lucide-react"
 import { cn } from "../../lib/utils"
 import type { ChatMessage } from "../../types"
 
@@ -8,17 +8,18 @@ interface ChatBoxProps {
   isStreaming: boolean
   currentTokens: string
   activeTurnId: string | null
-  onSendMessage: (msg: string) => void
+  onSendMessage: (msg: string, forcedInterpretation?: string) => void
   onStopStreaming: () => void
   onClearChat: () => void
   onSelectMessageTurn: (turnId: string) => void
+  onSelectCandidate?: (candidateLabel: string) => void
 }
 
 const SAMPLE_PROMPTS = [
+  "What is apple?",
   "What is 15 * 8?",
   "What is the current UTC time?",
   "Remember that our mission is zero silent LLM failures",
-  "What is our mission?",
 ]
 
 export function ChatBox({
@@ -30,6 +31,7 @@ export function ChatBox({
   onStopStreaming,
   onClearChat,
   onSelectMessageTurn,
+  onSelectCandidate,
 }: ChatBoxProps) {
   const [input, setInput] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -96,7 +98,7 @@ export function ChatBox({
             </div>
             <h4 className="text-sm font-semibold text-bone mb-1">Live Decision Forensics</h4>
             <p className="text-xs text-muted max-w-sm mb-6 leading-relaxed">
-              Chat with the agent. Every routing choice, context selection, and tool execution builds a vertical decision graph on the right in real time.
+              Chat with the agent. Every disambiguation branch, routing choice, and tool execution builds a vertical decision graph on the right in real time.
             </p>
 
             <div className="w-full max-w-sm space-y-2 text-left">
@@ -109,7 +111,14 @@ export function ChatBox({
                   onClick={() => onSendMessage(prompt)}
                   className="w-full text-left p-2.5 rounded-lg bg-surface-raised hover:bg-surface-raised/80 border border-hairline hover:border-bone/40 text-xs text-bone/90 transition-all flex items-center justify-between group shadow-sm"
                 >
-                  <span>{prompt}</span>
+                  <span className="flex items-center gap-2">
+                    {prompt === "What is apple?" && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
+                        BRANCH
+                      </span>
+                    )}
+                    <span>{prompt}</span>
+                  </span>
                   <ArrowRight className="w-3.5 h-3.5 text-muted group-hover:text-bone group-hover:translate-x-0.5 transition-all" />
                 </button>
               ))}
@@ -156,8 +165,40 @@ export function ChatBox({
                   )}
                 >
                   <p className="whitespace-pre-wrap">{msg.content}</p>
-                </div>
 
+                  {/* Clarification prompt & interactive candidate selection chips */}
+                  {msg.clarify_question && msg.candidates && msg.candidates.length > 0 && (
+                    <div className="mt-3 p-3 rounded-xl bg-amber-950/60 border border-amber-500/50 space-y-2.5 w-full shadow-lg">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
+                        <HelpCircle className="w-4 h-4 text-amber-400" />
+                        <span>Clarification Needed:</span>
+                      </div>
+                      <p className="text-xs text-amber-100 font-sans">
+                        {msg.clarify_question}
+                      </p>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {msg.candidates.map((c, cIdx) => (
+                          <button
+                            key={cIdx}
+                            disabled={isStreaming}
+                            onClick={() => onSelectCandidate?.(c.label)}
+                            className="text-left px-3 py-2 rounded-lg bg-black/70 hover:bg-amber-500/20 border border-amber-500/40 hover:border-amber-400 text-xs transition-all flex flex-col gap-0.5 group shadow-sm disabled:opacity-50"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="font-bold text-white group-hover:text-amber-300">{c.label}</span>
+                              <span className="text-[10px] font-mono text-amber-400/90 bg-amber-950/80 px-1.5 py-0.2 rounded border border-amber-500/30">
+                                {Math.round(c.confidence * 100)}%
+                              </span>
+                            </div>
+                            {c.description && (
+                              <span className="text-[10px] text-slate-300 line-clamp-1">{c.description}</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* Turn trace badge button */}
                 {!isUser && msg.steps && msg.steps.length > 0 && msg.turnId && (

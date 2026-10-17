@@ -27,10 +27,10 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Generator, Iterator, Optional
-
+from typing import Any, Generator, Iterable, Iterator, Optional
 from groq import Groq
 from groq.types.chat import ChatCompletion
+from pydantic import BaseModel, Field
 
 from faultline.config import settings
 from faultline.recorder import RunRecorder
@@ -39,6 +39,23 @@ log = logging.getLogger(__name__)
 
 # ── Groq client (same key as llm.py) ─────────────────────────────────────────
 _groq = Groq(api_key=settings.groq_api_key)
+
+
+class InterpretationCandidate(BaseModel):
+    label: str
+    description: str
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    favored_by: list[str] = Field(default_factory=list)
+    reason: str = ""
+    chosen: bool = False
+
+
+class InterpretationOutput(BaseModel):
+    ambiguous: bool
+    candidates: list[InterpretationCandidate]
+    chosen: str
+    clarify_question: Optional[str] = None
+    chosen_without_history: Optional[str] = None
 
 # ── Available tools the agent can call ───────────────────────────────────────
 TOOLS: list[dict] = [
@@ -272,6 +289,154 @@ def route_intent(user_msg: str, context_turns: list[dict] | None = None) -> dict
     return _router_decision(user_msg, context_turns or [])
 
 
+# ── Interpretation step: query disambiguation & decision branching ───────────
+
+INTERPRET_SYSTEM = """You are an expert query disambiguation analyzer.
+Analyze the user's message in the context of recent conversation turns and memory items to determine if the message has multiple distinct plausible interpretations.
+
+Rules:
+1. Ambiguous query: If the message has 2 or more real alternatives (e.g. 'what is apple' could refer to Apple Inc. the tech company, or apple the edible fruit; 'what is python' could be the programming language or the snake), set ambiguous=true, and output 2 to 4 candidates.
+2. Unambiguous query: If the query has only one obvious sense given the context (e.g. 'what is 2+2', 'what is the current time?'), set ambiguous=false, and output exactly 1 candidate with confidence 1.0 and favored_by=["none"].
+3. Each candidate MUST contain:
+   - "label": short, clear name (e.g., 'Apple Inc.', 'Apple (fruit)')
+   - "description": 1 sentence explaining this interpretation
+   - "confidence": number between 0.0 and 1.0 (all candidate confidences should roughly sum to 1.0)
+   - "favored_by": list of context ids favoring this interpretation (e.g. ["turn_0"] or ["none"])
+   - "reason": brief explanation for why this interpretation is plausible
+4. "chosen": the label of the candidate the assistant should choose given context.
+5. "clarify_question": If the top two candidate confidences are within 0.15 of each other, provide a clarification question to ask the user (e.g., "Did you mean Apple the company or apple the fruit?"). If confidences are not close (gap > 0.15), set clarify_question to null.
+
+Reply in strictly valid JSON format matching:
+{
+  "ambiguous": bool,
+  "candidates": [
+    {
+      "label": "string",
+      "description": "string",
+      "confidence": 0.0,
+      "favored_by": ["none"],
+      "reason": "string"
+    }
+  ],
+  "chosen": "string",
+  "clarify_question": null or "string"
+}
+"""
+
+
+def _interpret_query(
+    user_msg: str,
+    context_turns: list[dict],
+    forced_interpretation: Optional[str] = None,
+) -> InterpretationOutput:
+    """Run interpretation step with Groq, strict JSON, Pydantic validation, retry once, fallback."""
+    ctx_lines = []
+    for i, t in enumerate(context_turns):
+        role = t.get("role", "turn")
+        cnt = t.get("content", "")[:120]
+        ctx_lines.append(f"turn_{i} ({role}): {cnt}")
+    ctx_str = "\n".join(ctx_lines) if ctx_lines else "none"
+
+    msgs = [
+        {"role": "system", "content": INTERPRET_SYSTEM},
+        {"role": "user", "content": f"Context:\n{ctx_str}\n\nUser Message: {user_msg}"},
+    ]
+
+    for attempt in range(2):
+        try:
+            resp = _groq.chat.completions.create(
+                model=settings.judge_model,
+                messages=msgs,
+                temperature=0.0,
+                max_tokens=384,
+                response_format={"type": "json_object"},
+            )
+            raw = resp.choices[0].message.content or "{}"
+            data = json.loads(raw)
+            interp = InterpretationOutput.model_validate(data)
+            if not interp.candidates:
+                raise ValueError("candidates list empty")
+
+            # Validate confidences
+            for c in interp.candidates:
+                c.confidence = max(0.0, min(1.0, float(c.confidence)))
+
+            if forced_interpretation:
+                interp.chosen = forced_interpretation
+                interp.clarify_question = None
+                found = False
+                for c in interp.candidates:
+                    if c.label.strip().lower() == forced_interpretation.strip().lower():
+                        c.chosen = True
+                        found = True
+                    else:
+                        c.chosen = False
+                if not found:
+                    forced_cand = InterpretationCandidate(
+                        label=forced_interpretation,
+                        description=f"User-forced interpretation: {forced_interpretation}",
+                        confidence=1.0,
+                        favored_by=["user_selection"],
+                        reason="User explicitly chose this interpretation",
+                        chosen=True,
+                    )
+                    interp.candidates.insert(0, forced_cand)
+            else:
+                matched = False
+                for c in interp.candidates:
+                    if c.label == interp.chosen:
+                        c.chosen = True
+                        matched = True
+                    else:
+                        c.chosen = False
+                if not matched and interp.candidates:
+                    best = max(interp.candidates, key=lambda c: c.confidence)
+                    best.chosen = True
+                    interp.chosen = best.label
+
+                # If top two confidences are within 0.15, set clarify_question
+                if len(interp.candidates) >= 2:
+                    sorted_c = sorted(interp.candidates, key=lambda c: c.confidence, reverse=True)
+                    if abs(sorted_c[0].confidence - sorted_c[1].confidence) <= 0.15:
+                        if not interp.clarify_question:
+                            interp.clarify_question = f"Did you mean '{sorted_c[0].label}' or '{sorted_c[1].label}'?"
+                    else:
+                        interp.clarify_question = None
+
+            return interp
+        except Exception as e:
+            log.warning("interpret attempt %d failed: %s", attempt + 1, e)
+            if attempt == 1:
+                break
+
+    # Fallback to single interpretation
+    chosen_label = forced_interpretation or user_msg.strip()[:60]
+    cand = InterpretationCandidate(
+        label=chosen_label,
+        description=f"Direct interpretation of '{user_msg}'",
+        confidence=1.0,
+        favored_by=["none"],
+        reason="Single deterministic interpretation fallback",
+        chosen=True,
+    )
+    return InterpretationOutput(
+        ambiguous=False,
+        candidates=[cand],
+        chosen=chosen_label,
+        clarify_question=None,
+    )
+
+
+def _measure_influence(user_msg: str, chosen_label: str) -> Optional[str]:
+    """Re-run interpret step with history removed to measure context influence."""
+    try:
+        no_hist_interp = _interpret_query(user_msg, context_turns=[])
+        return no_hist_interp.chosen
+    except Exception as e:
+        log.debug("measured influence error: %s", e)
+        return None
+
+
 # ── Main turn generator (yields SSE strings) ──────────────────────────────────
 
 CHAT_SYSTEM = """You are a helpful, concise assistant. You have access to tools.
@@ -284,27 +449,18 @@ def run_chat_turn(
     history: list[dict],
     run_id: Optional[str] = None,
     graph_name: str = "live_chat",
+    forced_interpretation: Optional[str] = None,
 ) -> Generator[str, None, ChatTurn]:
     """
     Execute one chat turn and yield SSE events for each step.
 
     The caller does:
-        gen = run_chat_turn(msg, history)
+        gen = run_chat_turn(msg, history, forced_interpretation=...)
         for sse_chunk in gen:
             yield sse_chunk      # stream to browser
 
     At the very end (StopIteration.value) the ChatTurn is returned
     so the caller can append it to history.
-
-    Usage in FastAPI with StreamingResponse:
-        async def stream():
-            gen = run_chat_turn(msg, history)
-            try:
-                while True:
-                    yield next(gen)
-            except StopIteration as e:
-                turn = e.value
-                ...
     """
     t_start = time.perf_counter()
     turn_id = f"turn_{uuid.uuid4().hex[:8]}"
@@ -314,7 +470,15 @@ def run_chat_turn(
     rec = RunRecorder(run_id=run_id, task=user_message, tenant=graph_name)
     steps: list[dict] = []
 
-    def _emit_step(kind: str, tool: str, inp: Any, out: Any, status: str = "ok", tokens: int = 0) -> dict:
+    def _emit_step(
+        kind: str,
+        tool: str,
+        inp: Any,
+        out: Any,
+        status: str = "ok",
+        tokens: int = 0,
+        dependencies: Optional[Any] = None,
+    ) -> dict:
         """Record a step and return it as a dict for SSE."""
         idx = rec.record_step(
             agent="chat_agent",
@@ -324,6 +488,7 @@ def run_chat_turn(
             out=out,
             status=status,
             tokens=tokens,
+            dependencies=dependencies,
         )
         step_dict = {
             "idx": idx,
@@ -338,20 +503,57 @@ def run_chat_turn(
         return step_dict
 
     # ── Step 1: chat_input ────────────────────────────────────────────────────
-    s = _emit_step("chat_input", "user_message", user_message, {})
-    yield _sse("step", {"turn_id": turn_id, "step": s})
+    input_step = _emit_step("chat_input", "user_message", user_message, {})
+    yield _sse("step", {"turn_id": turn_id, "step": input_step})
 
     # ── Step 2: context_selection ─────────────────────────────────────────────
     selected_ctx, ctx_meta = _select_context(history)
-    s = _emit_step("context_selection", "context_selection", ctx_meta,
-                   {"kept_turns": [t.get("content", "")[:80] for t in selected_ctx]})
-    yield _sse("step", {"turn_id": turn_id, "step": s})
+    ctx_step = _emit_step("context_selection", "context_selection", ctx_meta,
+                          {"kept_turns": [t.get("content", "")[:80] for t in selected_ctx]})
+    yield _sse("step", {"turn_id": turn_id, "step": ctx_step})
 
     # ── Step 3: router ────────────────────────────────────────────────────────
     router = _router_decision(user_message, selected_ctx)
-    total_tokens += router.pop("tokens", 0)
-    s = _emit_step("router", "router", {"user_msg": user_message[:120]}, router)
-    yield _sse("step", {"turn_id": turn_id, "step": s})
+    r_tok = router.pop("tokens", 0)
+    total_tokens += int(r_tok) if isinstance(r_tok, (int, float)) else 0
+    router_step = _emit_step("router", "router", {"user_msg": user_message[:120]}, router)
+    yield _sse("step", {"turn_id": turn_id, "step": router_step})
+
+    # Record router candidate alternatives with CONSIDERED edges
+    is_tool = router["decision"] == "tool_call"
+    r_tool_name = router.get("tool")
+    router_cands = [
+        {
+            "label": "direct_answer",
+            "description": "Answer user query directly without tool invocation",
+            "confidence": 0.15 if is_tool else 0.85,
+            "chosen": not is_tool,
+            "reason": router.get("reason", "") if not is_tool else "Tool invocation deemed more appropriate",
+            "favored_by": ["none"],
+        },
+        {
+            "label": f"tool_call: {r_tool_name}" if r_tool_name else "tool_call",
+            "description": f"Invoke tool '{r_tool_name}' to resolve request" if r_tool_name else "Invoke specialized tool",
+            "confidence": 0.85 if is_tool else 0.15,
+            "chosen": is_tool,
+            "reason": router.get("reason", "") if is_tool else "Direct conversational answer preferred",
+            "favored_by": ["user_message"],
+        },
+    ]
+    r_chosen_cand_idx = None
+    for rc in router_cands:
+        rc_step = _emit_step(
+            "candidate",
+            "router_candidate",
+            {"decision_idx": router_step["idx"], "label": rc["label"]},
+            rc,
+            dependencies=[],
+        )
+        rec.record_considered(router_step["idx"], rc_step["idx"], chosen=rc["chosen"], confidence=rc["confidence"])
+        yield _sse("candidate_added", {"turn_id": turn_id, "step": rc_step, "node": rc_step, "decision_idx": router_step["idx"]})
+        yield _sse("step", {"turn_id": turn_id, "step": rc_step})
+        if rc["chosen"]:
+            r_chosen_cand_idx = rc_step["idx"]
 
     # ── Step 4 (optional): tool_call + tool_result ────────────────────────────
     tool_result_text: Optional[str] = None
@@ -389,7 +591,13 @@ def run_chat_turn(
             elif tool_name == "get_current_time":
                 args = {}
 
-        s = _emit_step("tool_call", tool_name, args, {})
+        s = _emit_step(
+            "tool_call",
+            tool_name,
+            args,
+            {},
+            dependencies=[r_chosen_cand_idx] if r_chosen_cand_idx is not None else None,
+        )
         yield _sse("step", {"turn_id": turn_id, "step": s})
 
         # Execute the tool
@@ -404,7 +612,6 @@ def run_chat_turn(
         yield _sse("step", {"turn_id": turn_id, "step": s})
 
     # ── Step 5 (optional): retrieval ──────────────────────────────────────────
-    # Simple keyword retrieval from history (always runs; may return nothing)
     keywords = user_message.lower().split()[:5]
     retrieved: list[str] = []
     for turn in history[-10:]:
@@ -417,9 +624,97 @@ def run_chat_turn(
                        {"records": retrieved[:3], "count": len(retrieved)})
         yield _sse("step", {"turn_id": turn_id, "step": s})
 
-    # ── Step 6: synthesis (streaming) ────────────────────────────────────────
-    # Build final prompt
-    final_msgs: list[dict] = [{"role": "system", "content": CHAT_SYSTEM}]
+    # ── Step 6: interpretation (runs before synthesis) ─────────────────────────
+    interp = _interpret_query(user_message, selected_ctx, forced_interpretation=forced_interpretation)
+    if selected_ctx and interp.ambiguous:
+        meas_chosen = _measure_influence(user_message, interp.chosen)
+        interp.chosen_without_history = meas_chosen
+
+    dec_payload = interp.model_dump()
+    if interp.chosen_without_history:
+        dec_payload["measured_influence"] = f"Measured: without earlier turns the choice would be {interp.chosen_without_history}"
+
+    dec_step = _emit_step(
+        "decision",
+        "interpret",
+        {"user_msg": user_message, "context_turns": len(selected_ctx), "forced": bool(forced_interpretation)},
+        dec_payload,
+        dependencies=[ctx_step["idx"]],
+    )
+    yield _sse("decision_added", {"turn_id": turn_id, "step": dec_step, "node": dec_step})
+    yield _sse("step", {"turn_id": turn_id, "step": dec_step})
+
+    # Record child candidate nodes with CONSIDERED and FAVORED_BY edges
+    chosen_cand_idx = None
+    chosen_cand = None
+    for c in interp.candidates:
+        c_step = _emit_step(
+            "candidate",
+            "interpret_candidate",
+            {"decision_idx": dec_step["idx"], "label": c.label},
+            c.model_dump(),
+            dependencies=[dec_step["idx"]] if c.chosen else [],
+        )
+        rec.record_considered(dec_step["idx"], c_step["idx"], chosen=c.chosen, confidence=c.confidence)
+        for fav in c.favored_by:
+            if fav and fav != "none":
+                rec.record_favored_by(c_step["idx"], target_step_idx=ctx_step["idx"])
+
+        yield _sse("candidate_added", {"turn_id": turn_id, "step": c_step, "node": c_step, "decision_idx": dec_step["idx"]})
+        yield _sse("step", {"turn_id": turn_id, "step": c_step})
+
+        if c.chosen:
+            chosen_cand_idx = c_step["idx"]
+            chosen_cand = c
+
+    if chosen_cand is None and interp.candidates:
+        chosen_cand = interp.candidates[0]
+        chosen_cand_idx = dec_step["idx"]
+
+    # If clarification is needed and not forced, pause and let user pick
+    if interp.clarify_question and not forced_interpretation:
+        clarify_data = {
+            "turn_id": turn_id,
+            "run_id": run_id,
+            "clarify_question": interp.clarify_question,
+            "candidates": [c.model_dump() for c in interp.candidates],
+            "decision_idx": dec_step["idx"],
+        }
+        yield _sse("clarify", clarify_data)
+
+        rec.record_answer(dec_step["idx"])
+        try:
+            rec.finish_run(outcome="success")
+            rec.sync_to_falkordb(graph_name=graph_name)
+        except Exception as e:
+            log.warning("FalkorDB sync failed (non-fatal): %s", e)
+
+        latency = round(time.perf_counter() - t_start, 3)
+        yield _sse("done", {
+            "turn_id": turn_id,
+            "run_id": run_id,
+            "latency_s": latency,
+            "tokens": total_tokens,
+            "n_steps": len(steps),
+            "needs_clarification": True,
+        })
+        return ChatTurn(
+            turn_id=turn_id,
+            run_id=run_id,
+            user_message=user_message,
+            assistant_answer=interp.clarify_question,
+            steps=steps,
+            latency_s=latency,
+            tokens_used=total_tokens,
+        )
+
+    # ── Step 7: synthesis (streaming) ────────────────────────────────────────
+    # The chosen interpretation MUST be passed into the synthesis prompt
+    chosen_label = chosen_cand.label if chosen_cand else "Standard interpretation"
+    interpretation_instruction = f"Interpret the question as: {chosen_label}. Answer accordingly."
+    final_msgs: list[dict] = [
+        {"role": "system", "content": f"{CHAT_SYSTEM}\n\n{interpretation_instruction}"}
+    ]
     final_msgs.extend(selected_ctx)
     final_msgs.append({"role": "user", "content": user_message})
     if tool_result_text:
@@ -436,9 +731,19 @@ def run_chat_turn(
             "content": tool_result_text,
         })
 
-    # Start the synthesis step node immediately
-    synth_step = _emit_step("synthesis", "synthesis",
-                             {"prompt_turns": len(final_msgs)}, {"streaming": True})
+    # Start the synthesis step node immediately with DEPENDS_ON to chosen candidate
+    synth_step = _emit_step(
+        "synthesis",
+        "synthesis",
+        {
+            "prompt_turns": len(final_msgs),
+            "interpretation": chosen_label,
+            "interpretation_instruction": interpretation_instruction,
+            "messages": final_msgs,
+        },
+        {"streaming": True},
+        dependencies=[chosen_cand_idx] if chosen_cand_idx is not None else None,
+    )
     yield _sse("step", {"turn_id": turn_id, "step": synth_step})
 
     # Stream the answer tokens

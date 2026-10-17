@@ -156,14 +156,30 @@ export interface GraphElements {
   fault_line_idx?: number | null
 }
 
+export interface CandidateInfo {
+  label: string
+  description: string
+  confidence: number
+  chosen?: boolean
+  reason?: string
+  favored_by?: string[]
+}
+
 export interface ChatStep {
   idx: number
-  kind: "chat_input" | "context_selection" | "router" | "tool_call" | "tool_result" | "synthesis" | "chat_output" | string
+  kind: "chat_input" | "context_selection" | "router" | "decision" | "candidate" | "tool_call" | "tool_result" | "synthesis" | "chat_output" | string
   tool?: string | null
   input: any
   output: any
   status: "ok" | "error" | string
   ts?: number
+  label?: string
+  description?: string
+  confidence?: number
+  chosen?: boolean
+  reason?: string
+  favored_by?: string[]
+  decision_idx?: number
 }
 
 export interface ChatMessage {
@@ -177,5 +193,8 @@ export interface ChatMessage {
   tokens?: number
   timestamp?: number
   isStreaming?: boolean
+  clarify_question?: string | null
+  candidates?: CandidateInfo[]
+  forced_interpretation?: string
 }
 
