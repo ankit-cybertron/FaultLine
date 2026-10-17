@@ -8,6 +8,7 @@ import {
   Play,
   FileCode,
   Zap,
+  Bot,
 } from "lucide-react"
 import type { Run } from "../../types"
 
@@ -65,6 +66,16 @@ export function CommandPalette({
           <Command.Group heading="Navigation" className="text-[10px] font-sans text-subtle px-2 py-1">
             <Command.Item
               onSelect={() => {
+                onNavigate("chat")
+                onOpenChange(false)
+              }}
+              className="flex items-center gap-2.5 p-2 rounded-md hover:bg-surface-raised cursor-pointer text-bone font-sans text-xs"
+            >
+              <Bot className="w-4 h-4 text-indigo-400" />
+              <span>Go to Live Chat & Decision Graph</span>
+            </Command.Item>
+            <Command.Item
+              onSelect={() => {
                 onNavigate("overview")
                 onOpenChange(false)
               }}
@@ -73,6 +84,7 @@ export function CommandPalette({
               <Activity className="w-4 h-4 text-bone" />
               <span>Go to Overview</span>
             </Command.Item>
+
             <Command.Item
               onSelect={() => {
                 onNavigate("provenance")

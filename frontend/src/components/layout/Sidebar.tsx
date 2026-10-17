@@ -9,6 +9,7 @@ import {
   Database,
   ListOrdered,
   X,
+  Bot,
 } from "lucide-react"
 import { motion } from "motion/react"
 import { useSeismicAudio } from "../../hooks/useSeismicAudio"
@@ -47,11 +48,13 @@ export function Sidebar({
   const isExpanded = !collapsed || isHovered
 
   const navItems = [
+    { id: "chat", label: "Live Chat", icon: <Bot className="w-4 h-4 text-indigo-400" /> },
     { id: "overview", label: "Overview", icon: <Activity className="w-4 h-4" /> },
     { id: "provenance", label: "Provenance", icon: <Layers className="w-4 h-4" /> },
     { id: "forensics", label: "Forensics", icon: <Search className="w-4 h-4" /> },
     { id: "fleet", label: "Fleet", icon: <Radio className="w-4 h-4" /> },
   ]
+
 
   const falkorConnected = health?.falkordb === "connected"
   const backendHealthy = health?.status === "ok"

@@ -205,9 +205,17 @@ def _router_decision(user_msg: str, context_turns: list[dict]) -> dict:
         )
         raw = resp.choices[0].message.content or "{}"
         data = json.loads(raw)
+        decision = data.get("decision", "direct_answer")
+        tool = data.get("tool")
+        tool_args = data.get("tool_args", {})
+        if tool == "calculate" and not tool_args:
+            import re
+            expr = re.sub(r"[^0-9+\-*/().% ]", "", user_msg).strip()
+            tool_args = {"expression": expr or "2 + 2"}
         return {
-            "decision": data.get("decision", "direct_answer"),
-            "tool": data.get("tool"),
+            "decision": decision,
+            "tool": tool,
+            "tool_args": tool_args,
             "reason": data.get("reason", ""),
             "alternatives": ["direct_answer", "tool_call"],
             "tokens": resp.usage.total_tokens if resp.usage else 0,
@@ -215,30 +223,53 @@ def _router_decision(user_msg: str, context_turns: list[dict]) -> dict:
     except Exception as e:
         log.warning("router failed, using heuristic: %s", e)
         lower = user_msg.lower()
-        if any(w in lower for w in ["calculate", "calc", "math", "+", "-", "*", "/", "%", "sum", "multiply"]):
+        import re
+        has_calc_word = any(w in lower for w in ["calculate", "calc", "compute", "evaluate", "sum", "multiply", "divide"])
+        has_math_expr = bool(re.search(r"\d+\s*[\+\*\/\%]\s*\d+", user_msg))
+        if has_calc_word or has_math_expr:
             decision = "tool_call"
             tool = "calculate"
             reason = "Mathematical expression detected; calling calculate tool"
-        elif any(w in lower for w in ["time", "utc", "clock", "date", "now", "today"]):
+            expr = re.sub(r"[^0-9+\-*/().% ]", "", user_msg).strip()
+            tool_args = {"expression": expr or "2 + 2"}
+        elif any(w in lower for w in ["time", "utc", "clock", "what time"]):
             decision = "tool_call"
             tool = "get_current_time"
             reason = "Current temporal query detected; calling get_current_time tool"
-        elif any(w in lower for w in ["remember", "memory", "recall", "earlier", "history", "previous", "search"]):
+            tool_args = {}
+        elif any(w in lower for w in ["remember", "memory", "recall", "earlier in this"]):
             decision = "tool_call"
             tool = "search_memory"
             reason = "Conversation history retrieval requested; calling search_memory tool"
+            tool_args = {"query": user_msg, "k": 3}
         else:
             decision = "direct_answer"
             tool = None
             reason = "Direct conversational query answered without tool invocation"
+            tool_args = {}
 
         return {
             "decision": decision,
             "tool": tool,
+            "tool_args": tool_args,
             "reason": reason,
             "alternatives": ["direct_answer", "tool_call"],
             "tokens": 20,
         }
+
+
+def execute_tool(name: str, args: dict, history: list[dict] | None = None) -> dict:
+    """Execute a registered tool by name with arguments."""
+    try:
+        out = _run_tool(name, args, history or [])
+        return {"status": "ok", "output": out}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "output": str(e)}
+
+
+def route_intent(user_msg: str, context_turns: list[dict] | None = None) -> dict:
+    """Route user intent to direct answer or tool call."""
+    return _router_decision(user_msg, context_turns or [])
 
 
 # ── Main turn generator (yields SSE strings) ──────────────────────────────────
@@ -427,8 +458,10 @@ def run_chat_turn(
                 answer_chunks.append(delta.content)
                 yield _sse("token", {"turn_id": turn_id, "token": delta.content})
             # Groq streams usage in the final chunk
-            if hasattr(chunk, "x_groq") and chunk.x_groq and hasattr(chunk.x_groq, "usage"):
-                synth_tokens = chunk.x_groq.usage.total_tokens or 0
+            if hasattr(chunk, "x_groq") and chunk.x_groq:
+                usage_obj = getattr(chunk.x_groq, "usage", None)
+                if usage_obj:
+                    synth_tokens = getattr(usage_obj, "total_tokens", 0) or 0
     except Exception as e:
         log.warning("streaming synthesis failed, generating simulated stream: %s", e)
         if tool_result_text:

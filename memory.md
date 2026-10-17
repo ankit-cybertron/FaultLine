@@ -169,3 +169,20 @@ Implemented end-to-end **Live Chat Mode** with real-time decision graph streamin
   - Added comprehensive test coverage: context selection budget, chat turn SSE sequence, FastAPI SSE streaming, and Cytoscape HTML generation.
   - All 7 tests passing (`7 passed in 3.18s`).
 
+---
+
+### Phase 8: Model Audit & React Frontend Live Chat with Vertical Downward Graph
+_2026-10-17 08:00 IST_
+
+- **Groq Model Audit & Test Suite**:
+  - Created [`scripts/test_groq_models.py`](file:///Users/cybertron/MyProjects/ML/faultline/scripts/test_groq_models.py) to dynamically list and query all available models on the active API key.
+  - Audited 11 models: identified `qwen/qwen3.8-27b` as optimal (~0.19s latency, full `json_object` schema mode compatibility required by the FaultLine agent router).
+  - Created [`tests/test_groq_api.py`](file:///Users/cybertron/MyProjects/ML/faultline/tests/test_groq_api.py) unit tests verifying models list, chat completion, and JSON mode.
+- **React Frontend Live Chat (`frontend/src/`)**:
+  - Implemented [`frontend/src/pages/LiveChatPage.tsx`](file:///Users/cybertron/MyProjects/ML/faultline/frontend/src/pages/LiveChatPage.tsx):
+    - **Left Column**: [`ChatBox.tsx`](file:///Users/cybertron/MyProjects/ML/faultline/frontend/src/components/chat/ChatBox.tsx) with chat message history, real-time token streaming, suggestion chips, turn selection, and stop/clear controls.
+    - **Right Column**: [`VerticalLiveGraph.tsx`](file:///Users/cybertron/MyProjects/ML/faultline/frontend/src/components/chat/VerticalLiveGraph.tsx) rendering a downward-flowing vertical decision graph (`TB` layout) via `@xyflow/react`.
+  - Created [`VerticalDecisionNode.tsx`](file:///Users/cybertron/MyProjects/ML/faultline/frontend/src/components/chat/VerticalDecisionNode.tsx) with top input handle and bottom output handle, animated live pulse for active streaming steps, status badges, and expandable JSON inspector drawer.
+  - Wired into `App.tsx`, `Sidebar.tsx`, and `CommandPalette.tsx` as default active view.
+
+

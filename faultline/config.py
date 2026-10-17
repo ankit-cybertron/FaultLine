@@ -17,8 +17,8 @@ class Settings(BaseSettings):
 
     # --- LLM ---
     groq_api_key: str = ""
-    investigator_model: str = "llama-3.3-70b-versatile"
-    judge_model: str = "llama-3.1-8b-instant"
+    investigator_model: str = "qwen/qwen3.8-27b"
+    judge_model: str = "qwen/qwen3.8-27b"
 
     # --- FalkorDB ---
     falkordb_host: str = "localhost"

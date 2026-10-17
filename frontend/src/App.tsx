@@ -9,6 +9,7 @@ import { OverviewPage } from "./pages/OverviewPage"
 import { ProvenancePage } from "./pages/ProvenancePage"
 import { ForensicsPage } from "./pages/ForensicsPage"
 import { FleetPage } from "./pages/FleetPage"
+import { LiveChatPage } from "./pages/LiveChatPage"
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts"
 import { api } from "./api/client"
 import type { Run, RunDetail, Diagnosis, ProvenanceFlow, GraphElements, FleetSummary, Step } from "./types"
@@ -25,8 +26,8 @@ const queryClient = new QueryClient({
 function FaultLineApp() {
   const qc = useQueryClient()
 
-  // App Navigation & Tenant State
-  const [activePage, setActivePage] = useState<string>("overview")
+  // App Navigation & Tenant State - Default to Live Chat for interactive decision flow
+  const [activePage, setActivePage] = useState<string>("chat")
   const [tenant, setTenant] = useState<string>("demo_agent")
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(true)
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
@@ -217,6 +218,8 @@ function FaultLineApp() {
               transition={{ duration: 0.18, ease: "easeOut" }}
               className="w-full h-full"
             >
+              {activePage === "chat" && <LiveChatPage />}
+
               {activePage === "overview" && (
                 <OverviewPage
                   runs={runs}
@@ -227,6 +230,7 @@ function FaultLineApp() {
                   onOpenRunModal={() => setRunModalOpen(true)}
                 />
               )}
+
 
               {activePage === "provenance" && (
                 <ProvenancePage

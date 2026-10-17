@@ -155,3 +155,27 @@ export interface GraphElements {
   edges: GraphEdge[]
   fault_line_idx?: number | null
 }
+
+export interface ChatStep {
+  idx: number
+  kind: "chat_input" | "context_selection" | "router" | "tool_call" | "tool_result" | "synthesis" | "chat_output" | string
+  tool?: string | null
+  input: any
+  output: any
+  status: "ok" | "error" | string
+  ts?: number
+}
+
+export interface ChatMessage {
+  id: string
+  role: "user" | "assistant"
+  content: string
+  steps?: ChatStep[]
+  turnId?: string
+  runId?: string
+  latency_s?: number
+  tokens?: number
+  timestamp?: number
+  isStreaming?: boolean
+}
+
