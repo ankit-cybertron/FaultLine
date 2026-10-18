@@ -1,10 +1,10 @@
 # FaultLine — Every Answer Ships With Its Graph
 
-> **Backprop for agent failures, with the receipts attached to every answer.** Turn a broken agent run into a graph, walk backward from the failure, find the step that broke first, patch it, replay, verify.
+> **Backprop for agent failures, with receipts attached to every answer.** Turn a broken agent run into a graph, walk backward from the failure, find the step that broke first, patch it, replay, and verify.
 
-Submitted to **[Graph Hacks: Context for AI Agents](https://www.wemakedevs.org/hackathons/falkordb)** — WeMakeDevs × FalkorDB.  
-**Track:** Track 1 only — *Agents That Act on Connected Data*  
-**Team Quantified Minds:** Ankit · Ishaan
+Submitted to **[Graph Hacks: Context for AI Agents](https://www.wemakedevs.org/hackathons/falkordb)** — WeMakeDevs × FalkorDB  
+**Track:** Track 1 — *Agents That Act on Connected Data*  
+**Team Quantified Minds:** Ankit · Ishaan  
 
 ---
 
@@ -12,15 +12,16 @@ Submitted to **[Graph Hacks: Context for AI Agents](https://www.wemakedevs.org/h
 
 **Every answer shows its work. When the answer is wrong, the graph shows where.**
 
-1. **Provenance Mode (every run):** Before the final answer is accepted, FaultLine returns the ordered causal flow of inputs, retrieved data records, tool calls, and agent handoffs that fed it (`ANSWERED_WITH`, `DEPENDS_ON`, `READ`). Recorded at runtime via native value tracking without LLM guessing.
-2. **Forensics Mode (failed or flagged run):** The causal graph feeds the origin test. The earliest wrong step with correct inputs is highlighted in red, a structured patch is proposed, and counterfactual replay verifies the fix.
-3. **Fleet Mode (many runs):** FalkorDB graph queries group dozens of failed runs into common `Cause` nodes (`(:Run)-[:CAUSED_BY]->(:Cause)`). Fix one cause once, and replay all affected runs green.
-4. **Claim Checker (asynchronous):** Extracts atomic factual claims from the final answer and verifies each against upstream step outputs in the causal graph. Unsupported claims are flagged immediately.
+1. **Provenance Mode (every run):** Before the final answer is accepted, FaultLine returns the ordered causal flow of inputs, retrieved records, tool calls, and agent handoffs that fed it (`ANSWERED_WITH`, `DEPENDS_ON`, `READ`). Recorded at runtime via native value tracking without LLM guessing.
+2. **Forensics Mode (failed or flagged run):** The causal graph feeds the origin test. The earliest wrong step with correct inputs is isolated, a structured patch is proposed, and counterfactual replay verifies the fix.
+3. **Fleet Intelligence (many runs):** FalkorDB graph queries group dozens of failed runs into common `Cause` nodes (`(:Run)-[:CAUSED_BY]->(:Cause)`). Fix one cause once, and replay all affected runs green.
+4. **Live Chat & Decision Branching:** Interactive multi-turn agent with real-time graph visualization. When the agent faces an ambiguous query (e.g., *"What is Apple?"*), it branches candidates side-by-side, links them via `CONSIDERED` edges, highlights the selected decision, and dims discarded alternatives.
+5. **Claim Checker (asynchronous):** Extracts atomic factual claims from the final answer and validates each against upstream step outputs in the causal graph.
 
-### Honest Framing
+### Attribution Framing
 
-> **Attribution Disclaimer:**  
-> The flow shows **what information reached the model**, not why the model chose its exact words. Influence scores are measured via leave-one-out ablation and are explicitly presented as measured empirical influence, not internal token-level model attribution.
+> **Attribution Notice:**  
+> The graph captures **what information and decisions reached the model**, not internal hidden token activations. Influence is measured empirically via ablation and causal dependency tracking in FalkorDB.
 
 ---
 
@@ -29,7 +30,7 @@ Submitted to **[Graph Hacks: Context for AI Agents](https://www.wemakedevs.org/h
 | Track 1 Requirement | How FaultLine Meets It |
 |:---|:---|
 | **Multi-hop reasoning** | Backward slice and shortest-path queries traverse chained `DEPENDS_ON`, `READ`, and `HANDOFF_FROM` edges in FalkorDB. |
-| **Graph queries & algorithms as agent tools** | Cypher backward slice, shortest path, PageRank-style blame ranking, and fleet grouping are native FalkorDB queries exposed as MCP tools. |
+| **Graph queries & algorithms as agent tools** | Cypher backward slice, shortest path, PageRank-style blame ranking, and fleet grouping execute natively in FalkorDB and are exposed as MCP tools. |
 | **Tool selection through MCP** | The investigator agent selects tools dynamically; external agents (Claude Code, Cursor, LangGraph) query FaultLine over FastMCP. |
 | **Actions based on graph findings** | FaultLine synthesizes structured patches, rolls run state back to the root-cause step, replays execution, and verifies outcome with a task checker. |
 | **Explainable results** | Interactive provenance graph on every run, highlighted causal path on failures, and verified support badges for claims. |
@@ -41,16 +42,16 @@ Submitted to **[Graph Hacks: Context for AI Agents](https://www.wemakedevs.org/h
 ## Architecture
 
 ```
-Demo Agent (instrumented)  ---runtime events--->  RunRecorder  --->  FalkorDB (per-tenant graph)
-(fetcher / cleaner / reporter)                                             |
-                                                                           +---> Answer Flow Query ---> UI (Answer + Graph Flow)
-                                                                           +---> Claim Checker -------> UI (Supported / Unsupported)
-                                                                           +---> MCP Tools -----------> Investigator Agent
-                                                                           |                                |
-                                                                           |                                v
-                                                                           +<--- Counterfactual Replay <--- Patch Proposer
-                                                                           |
-                                                                           +---> Fleet Queries -------> Batch Repair Summary
+Demo Agent / Live Chat  ---runtime events--->  RunRecorder  --->  FalkorDB (per-tenant graph)
+                                                                         |
+                                                                         +---> Answer Flow Query ---> React App (Answer + Graph Flow)
+                                                                         +---> Claim Checker -------> React App (Supported / Unsupported)
+                                                                         +---> MCP Tools -----------> Investigator Agent
+                                                                         |                                |
+                                                                         |                                v
+                                                                         +<--- Counterfactual Replay <--- Patch Proposer
+                                                                         |
+                                                                         +---> Fleet Queries -------> Batch Repair Summary
 External Agents (Claude Code, Cursor, LangGraph) ---MCP---> explain_answer, diagnose_run
 ```
 
@@ -64,7 +65,7 @@ External Agents (Claude Code, Cursor, LangGraph) ---MCP---> explain_answer, diag
 | **Investigator (`investigator.py`)** | Drives the origin test loop, identifies the earliest broken step, and generates root-cause diagnosis. | Yes (analytical model) |
 | **Patch & Replay (`patch.py`, `replay.py`)** | Generates minimal structured patches, restores state to step $k$, replays downstream steps, and checks assertions. | Agent only |
 | **MCP Server (`tools.py`)** | FastMCP server exposing graph inspection, forensics, and fleet queries to external developer agents. | No |
-| **UI (`ui/app.py`)** | 3-tab Streamlit interface: Provenance Mode, Forensics Mode, and Fleet Mode. | No |
+| **Production UI (`frontend/`)** | Modern React + Vite application with interactive graph canvas, time-travel scrubbing, and live chat with decision branching. | No |
 
 ---
 
@@ -78,6 +79,7 @@ External Agents (Claude Code, Cursor, LangGraph) ---MCP---> explain_answer, diag
 (:Claim   {run_id, text, supported})           -- atomic factual statements from answer
 (:Error   {type, msg})                         -- runtime exceptions
 (:Cause   {signature, fix_summary, success_rate}) -- root cause clusters across fleet
+(:Interpretation {label, confidence, chosen, reason}) -- decision alternatives in chat
 
 -- Relationships
 (Run)-[:HAS_STEP]->(Step)
@@ -89,6 +91,7 @@ External Agents (Claude Code, Cursor, LangGraph) ---MCP---> explain_answer, diag
 (Claim)-[:SUPPORTED_BY]->(Step)                -- upstream evidence node
 (Step)-[:RAISED]->(Error)                      -- failure symptom
 (Run)-[:CAUSED_BY]->(Cause)                    -- fleet pattern memory
+(Step)-[:CONSIDERED]->(Interpretation)         -- decision branching alternatives
 ```
 
 ### Native Value-Level Tracking (`TrackedValue`)
@@ -152,7 +155,7 @@ FaultLine exposes its graph and diagnosis engine over the Model Context Protocol
 
 ## Evaluation Results
 
-We evaluate FaultLine against the standard industry approach (**B1 Flat Log scan**) across 50 benchmark runs with seeded real-world faults (`wrong_table`, `bad_regex`, `stale_fx_rate`, `unhandled_null`, `timeout`, `hallucinate_numbers`, `hallucinate_facts`):
+We evaluated FaultLine against the standard industry approach (**B1 Flat Log scan**) across 50 benchmark runs with seeded real-world faults (`wrong_table`, `bad_regex`, `stale_fx_rate`, `unhandled_null`, `timeout`, `hallucinate_numbers`, `hallucinate_facts`):
 
 | Evaluation Metric | Baseline 1 (Flat Log) | FaultLine v2 (Graph + Origin Test) | Delta |
 |:---|:---:|:---:|:---:|
@@ -168,73 +171,47 @@ We evaluate FaultLine against the standard industry approach (**B1 Flat Log scan
 
 ---
 
-## Quickstart & Cold-Start Run
+## Quickstart
 
-> *For the comprehensive startup guide with troubleshooting and Makefile shortcuts, see [docs/steps_to_start.md](file:///Users/cybertron/MyProjects/ML/faultline/docs/steps_to_start.md).*
+### 1. Run via Docker Compose (Recommended)
 
-### 1. Start FalkorDB
 ```bash
-docker compose up -d falkordb
+# Clone the repository
+git clone https://github.com/ankit-cybertron/FaultLine.git
+cd FaultLine
+
+# Configure environment
+cp .env.example .env
+# Add your GROQ_API_KEY to .env
+
+# Build and start all services
+docker compose up -d --build
 ```
-*FalkorDB is now listening on `localhost:6379`. Open the built-in FalkorDB Browser at `http://localhost:3000`.*
+Open `http://localhost:8000` to access the full application (FastAPI backend + React frontend).
 
-### 2. Install Dependencies
+### 2. Local Development (Native)
+
 ```bash
-# Using uv (recommended)
-uv sync
+# Start FalkorDB
+docker compose up -d falkordb
 
-# Or using standard pip
-python -m venv .venv
+# Set up Python virtual environment
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-```
 
-### 3. Environment Configuration
-```bash
-cp .env.example .env
-# Edit .env and enter your GROQ_API_KEY (free-tier supported)
-```
-
-### 4. Run the Instrumented Demo Agent
-```bash
-# Run a clean pipeline (creates run + commits causal graph to FalkorDB)
-python -m demo_agent.agent
-
-# Or inject a specific fault
-python -m demo_agent.agent --fault wrong_table
-python -m demo_agent.agent --fault hallucinate_numbers
-```
-
-### 5. Launch the React Dashboard (Animata UI + Seismic Design Language)
-
-FaultLine includes a React + TypeScript application built as a flight recorder for AI agents with Animata UI components and a Seismology design language.
-
-```bash
-# Terminal 1: Start FastAPI backend server
-uvicorn faultline.api:app --reload --port 8000
-# or: make api
-
-# Terminal 2: Start React frontend (Vite dev server)
+# Set up React frontend
 cd frontend
 npm install
-npm run dev
-# or: make ui-react
-```
-Open `http://localhost:5173` to view:
-- **Overview:** Live pipeline status with Animata Animated Beams, real-time KPI ledger, and one-click agent execution modal with Animated Border Trail.
-- **Provenance Explorer:** Annotated inline claims (solid green for supported, dashed red for unsupported), interactive SVG evidence threads connecting claims to graph nodes, React Flow causal graph with layered DAG layout, and trace time-travel scrubber.
-- **Forensics Lab:** Origin test investigation, single-fire epicenter pulse on root-cause step, shockwave path leading to the symptom, structured patch viewer, and forked counterfactual replay timeline (Proposed → Applied → Verified ladder).
-- **Fleet Intelligence:** Bento-grid / plate map of root-cause clusters, deterministic generative cluster fingerprints, affected run drill-down, and synthetic fleet generation.
-- **Command Palette (`⌘K` / `Ctrl+K`) & Keyboard Navigation:** Fast jumping between pages, runs, and stepping (`j`/`k`).
+npm run build
+cd ..
 
-*(Legacy Streamlit interface is still available via `streamlit run ui/app.py` or `make ui`)*
-
-### 6. Run FastMCP Tool Server
-```bash
-python -m faultline.tools
+# Run backend with integrated frontend
+uvicorn faultline.api:app --reload --port 8000
 ```
 
-### 7. Run Unit & Smoke Tests
+### 3. Run Unit Tests & CI Suite
+
 ```bash
 pytest tests/ -v
 ```
@@ -254,21 +231,7 @@ pytest tests/ -v
 
 ---
 
-## Known Limitations
-
-- **Single Root Cause per Run:** The current origin test assumes one primary breaking step per failure trajectory. Multi-fault concurrent failures are isolated iteratively.
-- **Synchronous Replay:** Replaying requires state serialization support in the target agent. The demo pipeline implements full state capture; third-party agents need checkpoint hooks.
-- **Attribution Scope:** The provenance graph verifies data ingestion and message flow, not internal neural attention weights.
-
----
-
-## AI Coding Assistant Disclosure
-
-We used Google Antigravity and Claude Code to assist with code scaffolding, boilerplate generation, and rapid iteration. The graph schema, Cypher query design, origin-test algorithm, and FalkorDB integration logic were created, validated, and debugged by Team Quantified Minds. Both team members can thoroughly explain all queries, data models, and architectural decisions.
-
----
-
 ## Team Quantified Minds
 
-- **Ankit:** Graph data model, FalkorDB Cypher queries, FastMCP server, origin-test algorithm, and evaluation harness.
-- **Ishaan:** Multi-agent pipeline instrumentation, fault injection suite, Streamlit Cytoscape UI, and counterfactual replay engine.
+- **Ankit:** Graph data model, FalkorDB Cypher queries, FastMCP server, origin-test algorithm, and AWS CI/CD deployment architecture.
+- **Ishaan:** Multi-agent pipeline instrumentation, fault injection suite, interactive React graph UI, and counterfactual replay engine.

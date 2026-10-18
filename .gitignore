@@ -63,8 +63,6 @@ logs/
 .coverage
 htmlcov/
 
-docs/
-
 # Node / Frontend
 node_modules/
 frontend/node_modules/

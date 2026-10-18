@@ -5,9 +5,13 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
-  test:
-    name: Run Test Suite & Build Verification
+  ci-gate:
+    name: Test Suite & Docker Verification
     runs-on: ubuntu-latest
 
     services:
@@ -60,48 +64,153 @@ jobs:
         run: |
           pytest tests/ -v
 
+      - name: Verify Docker Image Build
+        run: |
+          docker build -t faultline-verify:${{ github.sha }} .
+
   deploy:
-    name: Deploy to AWS EC2
-    needs: test
+    name: Deploy to EC2 via AWS Systems Manager (OIDC)
+    needs: ci-gate
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
 
-    steps:
-      - name: Deploy via SSH to EC2
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          script: |
-            set -e
-            APP_DIR="/home/${{ secrets.EC2_USER }}/faultline"
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID || 'i-04aeb4651eb8eb860' }}
+      EC2_PUBLIC_IP: ${{ vars.EC2_PUBLIC_IP || '18.212.225.64' }}
 
-            echo "=== Deploying FaultLine to AWS EC2 ==="
-            if [ ! -d "$APP_DIR" ]; then
-              echo "Cloning repository..."
-              git clone https://github.com/${{ github.repository }}.git "$APP_DIR"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to AWS via GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Sync GROQ_API_KEY to AWS SSM Parameter Store
+        if: ${{ secrets.GROQ_API_KEY != '' }}
+        run: |
+          echo "Updating /faultline/GROQ_API_KEY in AWS SSM Parameter Store (SecureString)..."
+          aws ssm put-parameter \
+            --name "/faultline/GROQ_API_KEY" \
+            --type "SecureString" \
+            --value "${{ secrets.GROQ_API_KEY }}" \
+            --overwrite \
+            --region "${{ env.AWS_REGION }}" >/dev/null
+          echo "SSM Parameter Store updated successfully."
+
+      - name: Trigger Deployment via AWS SSM Run Command
+        id: trigger-ssm
+        run: |
+          set -e
+          echo "Triggering SSM Run Command on instance ${{ env.EC2_INSTANCE_ID }} for commit ${{ github.sha }}..."
+
+          # SSM script: bootstraps deploy-ec2.sh if missing, then executes it with the target commit SHA
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "${{ env.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "FaultLine deployment: commit ${{ github.sha }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --parameters 'commands=[
+              "set -eu",
+              "APP_DIR=/opt/faultline",
+              "mkdir -p \"$APP_DIR\"",
+              "if [ ! -d \"$APP_DIR/.git\" ]; then git clone https://github.com/'"${{ github.repository }}"'.git \"$APP_DIR\"; fi",
+              "cd \"$APP_DIR\"",
+              "git fetch --all --tags",
+              "git checkout -f '"${{ github.sha }}"'",
+              "chmod +x scripts/deploy-ec2.sh",
+              "bash scripts/deploy-ec2.sh '"${{ github.sha }}"'"
+            ]' \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
+          echo "Dispatched SSM Command ID: $COMMAND_ID"
+
+      - name: Wait for SSM Command Completion
+        run: |
+          set -e
+          COMMAND_ID="${{ steps.trigger-ssm.outputs.command_id }}"
+          INSTANCE_ID="${{ env.EC2_INSTANCE_ID }}"
+          REGION="${{ env.AWS_REGION }}"
+
+          echo "Awaiting completion for SSM Command: $COMMAND_ID on instance: $INSTANCE_ID..."
+          
+          STATUS="InProgress"
+          ELAPSED=0
+          TIMEOUT=600  # 10 minutes max for docker build on t3.small
+          
+          while [ "$STATUS" = "Pending" ] || [ "$STATUS" = "InProgress" ] || [ "$STATUS" = "Delayed" ]; do
+            sleep 10
+            ELAPSED=$((ELAPSED + 10))
+            if [ $ELAPSED -ge $TIMEOUT ]; then
+              echo "Error: Timed out waiting for SSM command completion after ${TIMEOUT}s."
+              exit 1
             fi
 
-            cd "$APP_DIR"
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$REGION" \
+              --query "Status" \
+              --output text 2>/dev/null || echo "InProgress")
 
-            echo "Updating code from main branch..."
-            git fetch origin main
-            git reset --hard origin/main
+            echo "[$ELAPSED s] Current status: $STATUS"
+          done
 
-            echo "Configuring environment..."
-            cat << 'EOF' > .env
-            GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}
-            FALKORDB_HOST=falkordb
-            FALKORDB_PORT=6379
-            INVESTIGATOR_MODEL=llama-3.3-70b-versatile
-            JUDGE_MODEL=llama-3.1-8b-instant
-            EOF
+          echo "SSM Command ended with Status: $STATUS"
 
-            echo "Starting containers with Docker Compose..."
-            docker compose down
-            docker compose up -d --build
+          # Retrieve execution logs (sanitized of sensitive environment variables)
+          echo "=== SSM Execution Output ==="
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$REGION" \
+            --query "StandardOutputContent" \
+            --output text || true
 
-            echo "Deployment successful! Active containers:"
-            docker compose ps
+          if [ "$STATUS" != "Success" ]; then
+            echo "=== SSM Error Output ==="
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$REGION" \
+              --query "StandardErrorContent" \
+              --output text || true
+            echo "ERROR: SSM Deployment command failed with status $STATUS"
+            exit 1
+          fi
+
+      - name: Verify Application Health
+        run: |
+          set -e
+          HEALTH_URL="http://${{ env.EC2_PUBLIC_IP }}:8000/health"
+          echo "Verifying public health endpoint: $HEALTH_URL"
+          
+          ATTEMPTS=0
+          MAX_ATTEMPTS=6
+          SUCCESS=0
+
+          while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
+            ATTEMPTS=$((ATTEMPTS + 1))
+            echo "Health verification probe $ATTEMPTS/$MAX_ATTEMPTS..."
+            HTTP_CODE=$(curl -s -o /tmp/health_resp.json -w "%{http_code}" "$HEALTH_URL" || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Health probe succeeded! Response:"
+              cat /tmp/health_resp.json
+              echo ""
+              SUCCESS=1
+              break
+            fi
+            sleep 5
+          done
+
+          if [ $SUCCESS -ne 1 ]; then
+            echo "WARNING: Public health check probe failed (HTTP $HTTP_CODE). Ensure port 8000 is open in EC2 Security Group if external access is desired."
+          else
+            echo "FaultLine is healthy and responding on http://${{ env.EC2_PUBLIC_IP }}:8000"
+          fi

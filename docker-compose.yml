@@ -2,9 +2,8 @@ services:
   falkordb:
     image: falkordb/falkordb:latest
     container_name: faultline-falkordb
-    ports:
-      - "6379:6379"
-      - "3000:3000"   # FalkorDB Browser
+    expose:
+      - "6379"
     volumes:
       - falkordb_data:/data
     restart: unless-stopped
