@@ -12,10 +12,15 @@ Submitted to **[Graph Hacks: Context for AI Agents](https://www.wemakedevs.org/h
 
 **Every answer shows its work. When the answer is wrong, the graph shows where.**
 
+![FaultLine Flight Recorder Overview](docs/images/flight_recorder_overview.png)
+
 1. **Provenance Mode (every run):** Before the final answer is accepted, FaultLine returns the ordered causal flow of inputs, retrieved records, tool calls, and agent handoffs that fed it (`ANSWERED_WITH`, `DEPENDS_ON`, `READ`). Recorded at runtime via native value tracking without LLM guessing.
 2. **Forensics Mode (failed or flagged run):** The causal graph feeds the origin test. The earliest wrong step with correct inputs is isolated, a structured patch is proposed, and counterfactual replay verifies the fix.
 3. **Fleet Intelligence (many runs):** FalkorDB graph queries group dozens of failed runs into common `Cause` nodes (`(:Run)-[:CAUSED_BY]->(:Cause)`). Fix one cause once, and replay all affected runs green.
 4. **Live Chat & Decision Branching:** Interactive multi-turn agent with real-time graph visualization. When the agent faces an ambiguous query (e.g., *"What is Apple?"*), it branches candidates side-by-side, links them via `CONSIDERED` edges, highlights the selected decision, and dims discarded alternatives.
+
+   ![FaultLine Live Chat & Decision Flow Forensics](docs/images/live_chat_decision_flow.png)
+
 5. **Claim Checker (asynchronous):** Extracts atomic factual claims from the final answer and validates each against upstream step outputs in the causal graph.
 
 ### Attribution Framing
@@ -41,19 +46,7 @@ Submitted to **[Graph Hacks: Context for AI Agents](https://www.wemakedevs.org/h
 
 ## Architecture
 
-```
-Demo Agent / Live Chat  ---runtime events--->  RunRecorder  --->  FalkorDB (per-tenant graph)
-                                                                         |
-                                                                         +---> Answer Flow Query ---> React App (Answer + Graph Flow)
-                                                                         +---> Claim Checker -------> React App (Supported / Unsupported)
-                                                                         +---> MCP Tools -----------> Investigator Agent
-                                                                         |                                |
-                                                                         |                                v
-                                                                         +<--- Counterfactual Replay <--- Patch Proposer
-                                                                         |
-                                                                         +---> Fleet Queries -------> Batch Repair Summary
-External Agents (Claude Code, Cursor, LangGraph) ---MCP---> explain_answer, diagnose_run
-```
+![FaultLine Architecture](ui/image.png)
 
 | Component | Responsibility | Uses LLM? |
 |:---|:---|:---:|
