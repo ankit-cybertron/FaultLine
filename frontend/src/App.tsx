@@ -26,8 +26,8 @@ const queryClient = new QueryClient({
 function FaultLineApp() {
   const qc = useQueryClient()
 
-  // App Navigation & Tenant State - Default to Live Chat for interactive decision flow
-  const [activePage, setActivePage] = useState<string>("chat")
+  // App Navigation & Tenant State - Overview is the default landing page
+  const [activePage, setActivePage] = useState<string>("overview")
   const [tenant, setTenant] = useState<string>("demo_agent")
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(true)
   const [activeRunId, setActiveRunId] = useState<string | null>(null)

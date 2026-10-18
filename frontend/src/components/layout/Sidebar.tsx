@@ -1,14 +1,7 @@
 import React, { useState } from "react"
 import {
   Activity,
-  Layers,
-  Search,
-  Radio,
   ChevronLeft,
-  ChevronRight,
-  Database,
-  ListOrdered,
-  X,
   Bot,
 } from "lucide-react"
 import { motion } from "motion/react"
@@ -48,13 +41,9 @@ export function Sidebar({
   const isExpanded = !collapsed || isHovered
 
   const navItems = [
+    { id: "overview", label: "Overview", icon: <Activity className="w-4 h-4 text-ember" /> },
     { id: "chat", label: "Live Chat", icon: <Bot className="w-4 h-4 text-indigo-400" /> },
-    { id: "overview", label: "Overview", icon: <Activity className="w-4 h-4" /> },
-    { id: "provenance", label: "Provenance", icon: <Layers className="w-4 h-4" /> },
-    { id: "forensics", label: "Forensics", icon: <Search className="w-4 h-4" /> },
-    { id: "fleet", label: "Fleet", icon: <Radio className="w-4 h-4" /> },
   ]
-
 
   const falkorConnected = health?.falkordb === "connected"
   const backendHealthy = health?.status === "ok"
@@ -101,7 +90,7 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Main Navigation */}
+      {/* Main Navigation: Focused on Overview & Live Chat */}
       <div className="p-2 space-y-1">
         {navItems.map((item) => {
           const isActive = activePage === item.id
@@ -115,7 +104,7 @@ export function Sidebar({
                 onNavigate(item.id)
               }}
               className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-[8px] text-xs font-sans transition-all cursor-pointer relative",
+                "w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-xs font-sans transition-all cursor-pointer relative",
                 isActive
                   ? "bg-surface-raised text-bone font-medium border border-hairline shadow-sm"
                   : "text-subtle hover:text-bone hover:bg-surface-raised/50"
@@ -133,93 +122,7 @@ export function Sidebar({
             </motion.button>
           )
         })}
-
-        {/* Runs Popover Button */}
-        <div className="relative pt-1">
-          <button
-            type="button"
-            onClick={() => setRunsPopoverOpen(!runsPopoverOpen)}
-            className={cn(
-              "w-full flex items-center gap-3 px-3 py-2 rounded-[8px] text-xs font-sans transition-colors text-subtle hover:text-bone hover:bg-surface-raised/50",
-              runsPopoverOpen && "bg-surface-raised text-bone border border-hairline"
-            )}
-            title="Recent runs"
-          >
-            <ListOrdered className="w-4 h-4 text-subtle" />
-            {isExpanded && (
-              <div className="flex-1 flex items-center justify-between text-left">
-                <span>Runs</span>
-                <span className="font-mono text-[10px] text-subtle bg-surface-raised px-1.5 py-0.2 rounded border border-hairline">
-                  {runs.length}
-                </span>
-              </div>
-            )}
-          </button>
-
-          {/* Runs Popover Drawer / Modal */}
-          {runsPopoverOpen && (
-            <div className="absolute left-full top-0 ml-2 w-72 p-3 bg-surface-raised border border-hairline rounded-[10px] shadow-2xl z-50 text-xs font-mono space-y-2">
-              <div className="flex items-center justify-between pb-2 border-b border-hairline text-subtle">
-                <span className="text-[11px] font-sans font-medium text-bone">Recent runs</span>
-                <button
-                  type="button"
-                  onClick={() => setRunsPopoverOpen(false)}
-                  className="hover:text-bone"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <div className="max-h-64 overflow-y-auto space-y-1">
-                {runs.slice(0, 10).map((r) => {
-                  const isFail = r.outcome === "failure"
-                  const isCurrent = activeRunId === r.id
-                  return (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => {
-                        onSelectRun(r.id)
-                        setRunsPopoverOpen(false)
-                      }}
-                      className={cn(
-                        "w-full text-left p-1.5 rounded flex items-center justify-between gap-2 transition-colors",
-                        isCurrent ? "bg-surface border border-hairline text-bone" : "hover:bg-surface/50 text-subtle"
-                      )}
-                    >
-                      <span className={cn(isFail ? "text-ember" : "text-lichen")}>
-                        {isFail ? "✕" : "✓"}
-                      </span>
-                      <span className="truncate flex-1 font-mono text-[11px]">{r.id}</span>
-                      <span className="text-[10px] text-subtle/70">{r.fault || "clean"}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-        </div>
       </div>
-
-      {/* Tenant Graph Selector */}
-      {isExpanded && (
-        <div className="px-3 py-2 mx-2 mt-auto mb-2 rounded-[8px] bg-surface-raised/40 border border-hairline">
-          <div className="text-[10px] font-mono text-subtle mb-1 flex items-center gap-1.5">
-            <Database className="w-3 h-3 text-subtle" />
-            <span>Tenant</span>
-          </div>
-          <select
-            value={tenant}
-            onChange={(e) => onTenantChange(e.target.value)}
-            className="w-full bg-surface border border-hairline text-bone text-xs rounded px-2 py-1 font-mono focus:outline-none focus:border-ember"
-          >
-            <option value="demo_agent">demo_agent</option>
-            <option value="fleet">fleet</option>
-            <option value="trail">trail</option>
-            <option value="whowhen">whowhen</option>
-          </select>
-        </div>
-      )}
 
       {/* Footer: Single small connection dot with tooltip */}
       <div className="p-3 border-t border-hairline mt-auto flex items-center justify-center">

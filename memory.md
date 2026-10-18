@@ -267,4 +267,28 @@ _2026-10-17 09:50 IST_
     - Connects via SSH (`appleboy/ssh-action@v1.0.3`) to the AWS EC2 host.
     - Clones or updates code, injects production `.env`, and runs `docker compose down && docker compose up -d --build`.
 
+---
+
+### Phase 11: Sidebar Simplification & Landing Page Redirect to Live Chat
+_2026-10-18 17:15 IST_
+
+- **Sidebar Cleanup (`frontend/src/components/layout/Sidebar.tsx`)**:
+  - Removed all unwanted static tabs (`Provenance`, `Forensics`, `Fleet`).
+  - Removed static `Runs` drawer and `Tenant` dropdown.
+  - Sidebar navigation is streamlined to two primary items:
+    1. **Overview** (Landing Page)
+    2. **Live Chat** (Interactive Live Chat & Graph with Decision Branching)
+  - Preserved system health indicators (FalkorDB and backend API connectivity status dot and tooltip) at the bottom.
+- **Default Landing Page Configuration (`frontend/src/App.tsx`)**:
+  - Configured `activePage` initial state to `"overview"` so visitors immediately land on the Overview page.
+- **Overview Page Landing & Redirect UX (`frontend/src/pages/OverviewPage.tsx`)**:
+  - Added an auto-redirect notification banner at the top with a 5-second countdown timer to Live Chat, including "Stay on overview" (pauses countdown) and "Go to Live Chat" buttons.
+  - Added a glowing hero CTA button: **"Launch Live Chat & Decision Graph"** with `ArrowRight` icon.
+  - Added quick-start prompt suggestion chips (`What is apple? [BRANCH]`, `Calculate 42 * 1337 [TOOL CALL]`, `Current UTC Time [TIME TOOL]`) that navigate directly to Live Chat on click.
+  - Re-routed all secondary action links and recent runs table clicks from static tabs to `"chat"`.
+- **Verification & Build**:
+  - Frontend built cleanly (`tsc -b && vite build` succeeded in 1.16s).
+  - All 14 tests passed (`pytest tests/`).
+
+
 

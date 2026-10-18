@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "motion/react"
-import { Play, ArrowRight, ExternalLink, ChevronDown, Check, X, ShieldAlert, Sparkles } from "lucide-react"
+import { Play, ArrowRight, ExternalLink, ChevronDown, Check, X, ShieldAlert, Sparkles, Bot } from "lucide-react"
 import { AnimatedBorderTrail } from "../components/animata/AnimatedBorderTrail"
 import { AnimatedBeamPipeline } from "../components/animata/AnimatedBeam"
 import { HeroSeismograph } from "../components/seismic/HeroSeismograph"
@@ -59,6 +59,20 @@ export function OverviewPage({
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null)
   const [showAllRuns, setShowAllRuns] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
+  const [redirectCountdown, setRedirectCountdown] = useState<number | null>(5)
+
+  // Auto-redirect to Live Chat countdown
+  useEffect(() => {
+    if (redirectCountdown === null) return
+    if (redirectCountdown <= 0) {
+      onNavigate("chat")
+      return
+    }
+    const timer = setTimeout(() => {
+      setRedirectCountdown((prev) => (prev !== null ? prev - 1 : null))
+    }, 1000)
+    return () => clearTimeout(timer)
+  }, [redirectCountdown, onNavigate])
 
   const { playClick, playSeismicPing } = useSeismicAudio()
 
@@ -99,6 +113,41 @@ export function OverviewPage({
 
   return (
     <div className="min-h-screen text-bone bg-basalt flex flex-col">
+      {/* ─────────────────────────────────────────────────────────────
+          NOTIFICATION BANNER: Auto-redirecting landing page banner
+          ───────────────────────────────────────────────────────────── */}
+      {redirectCountdown !== null && (
+        <div className="bg-gradient-to-r from-indigo-950/70 via-purple-950/40 to-surface border-b border-indigo-500/30 px-4 py-2.5 flex items-center justify-between text-xs font-sans text-indigo-200 shrink-0 z-10">
+          <div className="flex items-center gap-2.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+            </span>
+            <span className="text-bone font-medium">FaultLine Live Chat & Decision Graph</span>
+            <span className="text-indigo-300/80 font-mono text-[11px]">
+              &middot; Auto-redirecting in {redirectCountdown}s
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setRedirectCountdown(null)}
+              className="text-[11px] font-sans text-indigo-300 hover:text-white px-2 py-0.5 rounded hover:bg-surface-raised/60 transition-colors cursor-pointer"
+            >
+              Stay on overview
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate("chat")}
+              className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs rounded-[6px] flex items-center gap-1.5 transition-all shadow cursor-pointer"
+            >
+              <span>Go to Live Chat</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ─────────────────────────────────────────────────────────────
           LAYER 1: HERO VIEWPORT
           ───────────────────────────────────────────────────────────── */}
@@ -150,7 +199,7 @@ export function OverviewPage({
             </h1>
 
             <p className="text-sm font-sans text-subtle max-w-xl">
-              Causal provenance for every execution. Origin test for every failure. Counterfactual replay to verify every patch.
+              Causal provenance for every execution. Real-time decision branching and disambiguation flow in Live Chat.
             </p>
           </div>
 
@@ -161,46 +210,75 @@ export function OverviewPage({
             fault={latestRun?.fault}
             steps={activeRun?.steps || []}
             diagnosis={diagnosis}
-            onOpenForensics={() => onNavigate("forensics")}
+            onOpenForensics={() => onNavigate("chat")}
             onSelectStep={(idx) => {
-              onNavigate("provenance")
+              onNavigate("chat")
             }}
           />
 
-          {/* Action Row: Primary Run Agent Button + Open Forensics Link */}
-          <div className="flex items-center gap-4 pt-1">
-            <AnimatedBorderTrail
-              trailColor="ember"
-              duration="6s"
-              className="inline-block"
-            >
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.96 }}
-                onClick={() => {
-                  playClick(950)
-                  handleRunAgentClick()
-                }}
-                type="button"
-                className="px-5 py-2.5 bg-surface text-bone hover:text-white font-sans text-xs font-medium flex items-center gap-2 rounded-[9px] transition-all shadow-md group cursor-pointer"
+          {/* Action Row: Primary Launch Live Chat Button + Example Prompts */}
+          <div className="space-y-3 pt-2">
+            <div className="flex flex-wrap items-center gap-4">
+              <AnimatedBorderTrail
+                trailColor="ember"
+                duration="5s"
+                className="inline-block"
               >
-                <Play className="w-3.5 h-3.5 text-ember fill-ember group-hover:scale-110 transition-transform" />
-                <span>{isRunning ? "Preparing pipeline..." : "Run agent"}</span>
-              </motion.button>
-            </AnimatedBorderTrail>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => {
+                    playClick(950)
+                    onNavigate("chat")
+                  }}
+                  type="button"
+                  className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-sans text-xs font-semibold flex items-center gap-2.5 rounded-[10px] transition-all shadow-lg shadow-indigo-950/50 group cursor-pointer"
+                >
+                  <Bot className="w-4 h-4 text-indigo-200 group-hover:scale-110 transition-transform" />
+                  <span>Launch Live Chat & Decision Graph</span>
+                  <ArrowRight className="w-4 h-4 text-indigo-200 group-hover:translate-x-0.5 transition-transform" />
+                </motion.button>
+              </AnimatedBorderTrail>
 
-            <motion.button
-              whileHover={{ x: 3 }}
-              type="button"
-              onClick={() => {
-                playClick(800)
-                onNavigate("forensics")
-              }}
-              className="text-xs font-sans text-subtle hover:text-bone underline underline-offset-4 transition-colors flex items-center gap-1 cursor-pointer"
-            >
-              <span>Open forensics</span>
-              <span>&rarr;</span>
-            </motion.button>
+              <motion.button
+                whileHover={{ x: 3 }}
+                type="button"
+                onClick={() => {
+                  playClick(800)
+                  onNavigate("chat")
+                }}
+                className="text-xs font-sans text-subtle hover:text-bone underline underline-offset-4 transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>Explore Decision Branching in action</span>
+                <span>&rarr;</span>
+              </motion.button>
+            </div>
+
+            {/* Quick-start sample prompts */}
+            <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+              <span className="text-[11px] font-mono text-subtle/80">Try Live Chat prompts:</span>
+              {[
+                { label: "What is apple?", tag: "BRANCH" },
+                { label: "Calculate 42 * 1337", tag: "TOOL CALL" },
+                { label: "Current UTC Time", tag: "TIME TOOL" },
+              ].map((chip) => (
+                <button
+                  key={chip.label}
+                  type="button"
+                  onClick={() => {
+                    playClick(900)
+                    onNavigate("chat")
+                  }}
+                  className="px-2.5 py-1 rounded-[6px] bg-surface-raised/70 hover:bg-surface border border-hairline hover:border-indigo-400/40 text-bone text-[11px] font-mono flex items-center gap-1.5 transition-all cursor-pointer group"
+                >
+                  <span>"{chip.label}"</span>
+                  <span className="text-[9px] font-sans px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                    {chip.tag}
+                  </span>
+                  <ArrowRight className="w-3 h-3 text-subtle group-hover:text-indigo-400 group-hover:translate-x-0.5 transition-all" />
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </section>
@@ -320,7 +398,7 @@ export function OverviewPage({
                     onMouseLeave={() => setHoveredRowId(null)}
                     onClick={() => {
                       onSelectRun(run.id)
-                      onNavigate("provenance")
+                      onNavigate("chat")
                     }}
                     className="p-3 sm:px-4 cursor-pointer hover:bg-surface-raised transition-colors flex flex-col gap-1.5"
                   >
