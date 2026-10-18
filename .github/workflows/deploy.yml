@@ -78,6 +78,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID || 'i-04aeb4651eb8eb860' }}
       EC2_PUBLIC_IP: ${{ vars.EC2_PUBLIC_IP || '18.212.225.64' }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
     steps:
       - name: Checkout repository
@@ -91,16 +92,20 @@ jobs:
           audience: sts.amazonaws.com
 
       - name: Sync GROQ_API_KEY to AWS SSM Parameter Store
-        if: ${{ secrets.GROQ_API_KEY != '' }}
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        if: ${{ env.GROQ_API_KEY != '' }}
         run: |
-          echo "Updating /faultline/GROQ_API_KEY in AWS SSM Parameter Store (SecureString)..."
-          aws ssm put-parameter \
-            --name "/faultline/GROQ_API_KEY" \
-            --type "SecureString" \
-            --value "${{ secrets.GROQ_API_KEY }}" \
-            --overwrite \
-            --region "${{ env.AWS_REGION }}" >/dev/null
-          echo "SSM Parameter Store updated successfully."
+          if [ -n "$GROQ_API_KEY" ]; then
+            echo "Updating /faultline/GROQ_API_KEY in AWS SSM Parameter Store (SecureString)..."
+            aws ssm put-parameter \
+              --name "/faultline/GROQ_API_KEY" \
+              --type "SecureString" \
+              --value "$GROQ_API_KEY" \
+              --overwrite \
+              --region "${{ env.AWS_REGION }}" >/dev/null
+            echo "SSM Parameter Store updated successfully."
+          fi
 
       - name: Trigger Deployment via AWS SSM Run Command
         id: trigger-ssm
@@ -192,7 +197,7 @@ jobs:
           echo "Verifying public health endpoint: $HEALTH_URL"
           
           ATTEMPTS=0
-          MAX_ATTEMPTS=6
+          MAX_ATTEMPTS=12
           SUCCESS=0
 
           while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
@@ -210,7 +215,10 @@ jobs:
           done
 
           if [ $SUCCESS -ne 1 ]; then
-            echo "WARNING: Public health check probe failed (HTTP $HTTP_CODE). Ensure port 8000 is open in EC2 Security Group if external access is desired."
-          else
-            echo "FaultLine is healthy and responding on http://${{ env.EC2_PUBLIC_IP }}:8000"
+            echo "ERROR: Public health check probe failed after $MAX_ATTEMPTS attempts (last HTTP status: $HTTP_CODE)."
+            echo "The application at $HEALTH_URL was unreachable or did not return HTTP 200."
+            echo "Ensure port 8000 is open in the EC2 Security Group and that containers are running."
+            exit 1
           fi
+
+          echo "FaultLine is healthy and responding on http://${{ env.EC2_PUBLIC_IP }}:8000"

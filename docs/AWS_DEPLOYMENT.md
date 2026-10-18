@@ -196,6 +196,12 @@ aws iam put-role-policy \
   --policy-document file://ec2-param-policy.json
 ```
 
+#### Note on AWS KMS Encryption
+- **Default (AWS-Managed Key):** SSM Parameter Store defaults to the AWS-managed key `alias/aws/ssm`. When using `alias/aws/ssm`, IAM permissions for KMS are handled automatically by AWS without requiring extra `kms:*` statements.
+- **Customer-Managed Key (CMK):** If you configure a custom KMS key (`arn:aws:kms:us-east-1:123456789012:key/your-key-id`), you must also grant:
+  - `kms:Decrypt` and `kms:GenerateDataKey` to `FaultLineDeployRole`.
+  - `kms:Decrypt` to `FaultLineEC2SSMRole`.
+
 ---
 
 ## 4. GitHub Repository Configuration
